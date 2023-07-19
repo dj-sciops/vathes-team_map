@@ -163,6 +163,12 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             description=units_query.heading.attributes[attr].comment,
         )
 
+    # add a column for a set of manually annotated "good trial" for a particular probe insertion
+    nwbfile.add_unit_column(
+        name="good_trials",
+        description="a set of manually annotated 'good' trials for a particular probe insertion",
+    )
+
     # iterate through curated clusterings and export units data
     for insert_key in (ephys.ProbeInsertion & session_key).fetch("KEY"):
         # ---- Probe Insertion Location ----
@@ -224,6 +230,13 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                                                    & {'trial_event_type': 'go'}).fetch(
             'trial_event_time', 'start_time', 'stop_time', order_by='trial')
 
+        insertion_good_trial_q = ephys.ProbeInsertionQuality.GoodTrial & insert_key
+        if insertion_good_trial_q:
+            insertion_good_trials = insertion_good_trial_q.fetch('trial')
+        else:
+            insertion_good_trials = (experiment.SessionTrial
+                                     & (ephys.Unit.TrialSpikes & insert_key)).fetch('trial')
+
         unit_query = units_query & insert_key
         for unit in unit_query.fetch(as_dict=True):
             unit['id'] = max(nwbfile.units.id.data) + 1 if nwbfile.units.id.data else 0
@@ -242,6 +255,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             ).index.values
             unit['waveform_mean'] = unit.pop('waveform')
             unit['waveform_sd'] = np.full(1, np.nan)
+            unit['good_trials'] = insertion_good_trials
 
             for attr in list(unit.keys()):
                 if attr in units_omitted_attributes:
