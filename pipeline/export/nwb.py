@@ -32,7 +32,7 @@ def get_electrodes_mapping(electrodes):
     return {
         (
             electrodes["group"][idx].device.name,
-            electrodes["id"][idx],
+            electrodes["electrode"][idx],
         ): idx
         for idx in range(len(electrodes))
     }
@@ -277,7 +277,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
 
             ks_dir_relpath = (ephys_ingest.EphysIngest.EphysFile.proj(
                 ..., insertion_number='probe_insertion_number')
-                              & insert_key).fetch('ephys_file')
+                              & insert_key).fetch1('ephys_file')
             ks_dir = ephys_root_data_dir / ks_dir_relpath
             npx_dir = ks_dir.parent
 
@@ -294,9 +294,6 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             sampling_rate = (
                 ephys.ProbeInsertion.RecordingSystemSetup & insert_key
             ).fetch1("sampling_rate")
-            probe_id, probe_type = (ephys.ProbeInsertion & insert_key).fetch1(
-                "probe", "probe_type"
-            )
             mapping = get_electrodes_mapping(nwbfile.electrodes)
 
             extractor = se.read_spikeglx(npx_dir, load_sync_channel=True)
@@ -307,17 +304,15 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
                 lab.ElectrodeConfig.Electrode * ephys.ProbeInsertion & insert_key
             ).fetch("electrode")
 
-            probe_str = f"{probe_id} ({probe_type})"
-
             nwbfile.add_acquisition(
                 pynwb.ecephys.ElectricalSeries(
-                    name=f"ElectricalSeries{insert_key['insertion_number']}",
-                    description=f"Ephys recording from {probe_str}, at location: {insert_location}",
+                    name=f"ElectricalSeries-{insert_key['insertion_number']}",
+                    description=f"Ephys recording from probe '{ephys_device.name}', at location: {insert_location}",
                     data=SpikeInterfaceRecordingDataChunkIterator(extractor),
                     rate=float(sampling_rate),
                     electrodes=nwbfile.create_electrode_table_region(
                         region=[
-                            mapping[(probe_str, x)] for x in recording_channels_by_id
+                            mapping[(ephys_device.name, x)] for x in recording_channels_by_id
                         ],
                         name="electrodes",
                         description="recorded electrodes",
@@ -567,21 +562,32 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
 
     # ----- Raw Video Files -----
     if raw_video:
+        dev_pos_folder_mapping = {
+            "side": "Side view",
+            "bottom": "Bottom view",
+            "body": "Body"
+        }
+
         from nwb_conversion_tools.datainterfaces.behavior.movie.moviedatainterface import MovieInterface
 
         tracking_root_data_dir = pathlib.Path(tracking_ingest.get_tracking_paths()[0])
 
-        tracking_files_info = (tracking_ingest.TrackingIngest.TrackingFile & session_key).fetch(
+        tracking_files_info = (
+                tracking_ingest.TrackingIngest.TrackingFile
+                * tracking.TrackingDevice.proj('tracking_position')
+                & session_key).fetch(
             as_dict=True, order_by='tracking_device, trial')
         for tracking_file_info in tracking_files_info:
             video_path = pathlib.Path(
-                tracking_root_data_dir / tracking_file_info.pop("tracking_file")
+                tracking_root_data_dir
+                / dev_pos_folder_mapping[tracking_file_info.pop("tracking_position")]
+                / tracking_file_info.pop("tracking_file")
             ).with_suffix(".mp4")
             video_metadata = dict(
                 Behavior=dict(
                     Movies=[
                         dict(
-                            name=str(video_path),
+                            name=video_path.stem,
                             description=video_path.as_posix(),
                             unit="n.a.",
                             format="external",
@@ -607,7 +613,9 @@ def _get_session_identifier(session_key):
     return f'{water_res_num}_{sess_datetime}_s{session_key["session"]}'
 
 
-def export_recording(session_keys, output_dir='./', overwrite=False, validate=False):
+def export_recording(session_keys, output_dir='./',
+                     overwrite=False, validate=False,
+                     raw_ephys=False, raw_video=False):
     if not isinstance(session_keys, list):
         session_keys = [session_keys]
 
@@ -620,7 +628,7 @@ def export_recording(session_keys, output_dir='./', overwrite=False, validate=Fa
         save_file_name = ''.join([session_identifier, '.nwb'])
         output_fp = (output_dir / save_file_name).absolute()
         if overwrite or not output_fp.exists():
-            nwbfile = datajoint_to_nwb(session_key)
+            nwbfile = datajoint_to_nwb(session_key, raw_ephys=raw_ephys, raw_video=raw_video)
             with NWBHDF5IO(output_fp.as_posix(), mode='w') as io:
                 io.write(nwbfile)
                 print(f'\tWrite NWB 2.0 file: {save_file_name}')
