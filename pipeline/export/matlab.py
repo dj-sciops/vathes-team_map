@@ -160,9 +160,9 @@ def _export_recording(insert_key, output_dir='./', filename=None, overwrite=Fals
 
     trial_spikes = q_trial_spikes.fetch(format='frame', order_by='trial asc').reset_index()
 
-    # replace None with np.array([])
+    # replace None (non-ephys trial_spikes) with np.array([])
     isna = trial_spikes.spike_times.isna()
-    trial_spikes.loc[isna, 'spike_times'] = pd.Series([np.array([])] * isna.sum()).values
+    trial_spikes.loc[isna, 'spike_times'] = pd.Series([np.nan] * isna.sum()).values
 
     single_units = defaultdict(list)
     for u in set(trial_spikes.unit):
