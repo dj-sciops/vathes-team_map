@@ -235,7 +235,8 @@ def _export_recording(insert_key, output_dir='./', filename=None, overwrite=Fals
         qc_df = pd.DataFrame(qc).T
         qc_df.columns = qc_names
         edata['neuron_unit_quality_control'] = {n: qc_df.get(n).values for n in qc_names
-                                                if not np.all(np.isnan(qc_df.get(n).values))}
+                                                if (q_qc.heading.attributes[n].type.startswith(('varchar', 'enum'))
+                                                    or not np.all(np.isnan(qc_df.get(n).values.astype(float))))}
 
     # behavior_report
     # ---------------

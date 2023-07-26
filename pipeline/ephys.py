@@ -685,13 +685,12 @@ class MAPClusterMetric(dj.Computed):
         right_trial_spikes = (trial_spikes_query & {'trial_instruction': 'right'}).fetch(
             'spike_times',  order_by='trial')
 
-        def _compute_df(trial_spikes):
+        def _compute_df(trial_spikes, prob_thres=0.01):
             # -- compute per-trial spike count (between -3 to 3.5)
             trial_spike_counts = [sum(np.logical_and(s >= -3, s <= 3.5)) for s in trial_spikes]
             mean_spike_counts = np.mean(trial_spike_counts)
 
             # -- compute drift_qc from poisson distribution
-            prob_thres = 0.01
             prob = poisson.cdf(trial_spike_counts, mean_spike_counts)
             n_trials_outlier = len(np.where((prob < prob_thres) | (prob > 1 - prob_thres))[0])
             instability = n_trials_outlier / len(trial_spike_counts)
