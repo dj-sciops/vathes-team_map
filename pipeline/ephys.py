@@ -660,6 +660,8 @@ class MAPClusterMetric(dj.Computed):
         -> master
         ---
         drift_metric: float
+        left_trials_drift_metric=null: float
+        right_trials_drift_metric=null: float
         """
 
     key_source = Unit & UnitStat & ProbeInsertionQuality
@@ -670,35 +672,41 @@ class MAPClusterMetric(dj.Computed):
         #    then all trials are considered good trials
         if (ProbeInsertionQuality & key) and (ProbeInsertionQuality.GoodTrial & key):
             trial_spikes_query = (
-                Unit.TrialSpikes
-                * (experiment.TrialEvent & 'trial_event_type = "trialend"')
+                Unit.TrialSpikes * experiment.BehaviorTrial.proj('trial_instruction')
                 & ProbeInsertionQuality.GoodTrial
                 & key)
         else:
             trial_spikes_query = (
-                Unit.TrialSpikes
-                * (experiment.TrialEvent & 'trial_event_type = "trialend"')
+                Unit.TrialSpikes * experiment.BehaviorTrial.proj('trial_instruction')
                 & key)
 
-        trial_spikes, trial_durations = trial_spikes_query.fetch(
-            'spike_times', 'trial_event_time', order_by='trial')
+        left_trial_spikes = (trial_spikes_query & {'trial_instruction': 'left'}).fetch(
+            'spike_times',  order_by='trial')
+        right_trial_spikes = (trial_spikes_query & {'trial_instruction': 'right'}).fetch(
+            'spike_times',  order_by='trial')
 
-        # -- compute trial spike-rates
-        trial_spike_rates = [len(s) for s in trial_spikes] / trial_durations.astype(float)  # spikes/sec
-        mean_spike_rate = np.mean(trial_spike_rates)
-        # -- moving-average
-        window_size = 6  # sample
-        kernel = np.ones(window_size) / window_size
-        processed_trial_spike_rates = np.convolve(trial_spike_rates, kernel, 'same')
-        # -- down-sample
-        ds_factor = 6
-        processed_trial_spike_rates = processed_trial_spike_rates[::ds_factor]
-        # -- compute drift_qc from poisson distribution
-        poisson_cdf = poisson.cdf(processed_trial_spike_rates, mean_spike_rate)
-        instability = np.logical_or(poisson_cdf > 0.95, poisson_cdf < 0.05).sum() / len(poisson_cdf)
+        def _compute_df(trial_spikes):
+            # -- compute per-trial spike count (between -3 to 3.5)
+            trial_spike_counts = [sum(np.logical_and(s >= -3, s <= 3.5)) for s in trial_spikes]
+            mean_spike_counts = np.mean(trial_spike_counts)
+
+            # -- compute drift_qc from poisson distribution
+            prob_thres = 0.01
+            prob = poisson.cdf(trial_spike_counts, mean_spike_counts)
+            n_trials_outlier = len(np.where((prob < prob_thres) | (prob > 1 - prob_thres))[0])
+            instability = n_trials_outlier / len(trial_spike_counts)
+            return instability
+
+        dm_left = _compute_df(left_trial_spikes)
+        dm_right = _compute_df(right_trial_spikes)
+        dm = (dm_left + dm_right) / 2
+
         # -- insert
         self.insert1(key)
-        self.DriftMetric.insert1({**key, 'drift_metric': instability})
+        self.DriftMetric.insert1({**key,
+                                  'drift_metric': dm,
+                                  'left_trials_drift_metric': dm_left,
+                                  'right_trials_drift_metric': dm_right})
 
 
 #TODO: confirm the logic/need for this table
