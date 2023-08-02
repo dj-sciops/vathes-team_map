@@ -48,6 +48,7 @@ def _get_trial_event_times(events, units, trial_cond_name):
 
     return np.array(present_events), np.array(event_starts)
 
+
 def _get_clustering_method(probe_insertion):
     """
     Return the "clustering_method" used to estimate the all the units for the provided "probe_insertion"
@@ -126,6 +127,7 @@ def _get_sess_info(sess_key):
 
 
 from . import psth, psth_foraging
+
 
 def _get_ephys_trial_event_times(all_align_types, align_to, trial_keys):
     """
