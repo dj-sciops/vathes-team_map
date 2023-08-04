@@ -245,7 +245,9 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             raw_spike_times = []
             for aligned_spks, go_cue_time, trial_start, trial_stop in zip(
                     aligned_spikes, go_cue_times, trial_starts, trial_stops):
-                raw_spike_times.append(aligned_spks + float(trial_start) + float(go_cue_time))
+                unaligned_spikes = aligned_spks + float(trial_start) + float(go_cue_time)
+                raw_spike_times.append(unaligned_spikes[np.logical_and(
+                    unaligned_spikes >= trial_start, unaligned_spikes <= trial_stop)])
             spikes = np.concatenate(raw_spike_times).ravel()
             observed_times = np.array([trial_starts, trial_stops]).T.astype('float')
             unit['spike_times'] = spikes
