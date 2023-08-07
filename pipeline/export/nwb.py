@@ -165,8 +165,8 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
 
     # add a column for a set of manually annotated "good trial" for a particular probe insertion
     nwbfile.add_unit_column(
-        name="good_trials",
-        description="a set of manually annotated 'good' trials for a particular probe insertion",
+        name="is_good_trials",
+        description="boolean array specifying for each trial if it is manually annotated 'good' trials for a particular probe insertion",
     )
 
     # iterate through curated clusterings and export units data
@@ -225,17 +225,18 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
         electrode_df = nwbfile.electrodes.to_dataframe()
 
         # ---- Units ----
-        go_cue_times, trial_starts, trial_stops = (experiment.TrialEvent * experiment.SessionTrial
-                                                   & (ephys.Unit.TrialSpikes & insert_key)
-                                                   & {'trial_event_type': 'go'}).fetch(
-            'trial_event_time', 'start_time', 'stop_time', order_by='trial')
+        trials, go_cue_times, trial_starts, trial_stops = (
+                experiment.TrialEvent * experiment.SessionTrial
+                & (ephys.Unit.TrialSpikes & insert_key)
+                & {'trial_event_type': 'go'}).fetch(
+            'trial', 'trial_event_time', 'start_time', 'stop_time', order_by='trial')
 
         insertion_good_trial_q = ephys.ProbeInsertionQuality.GoodTrial & insert_key
         if insertion_good_trial_q:
             insertion_good_trials = insertion_good_trial_q.fetch('trial')
+            is_good_trials = [t in insertion_good_trials for t in trials]
         else:
-            insertion_good_trials = (experiment.SessionTrial
-                                     & (ephys.Unit.TrialSpikes & insert_key)).fetch('trial')
+            is_good_trials = np.full_like(trials, True).astype(bool).tolist()
 
         unit_query = units_query & insert_key
         for unit in unit_query.fetch(as_dict=True):
@@ -257,7 +258,7 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             ).index.values
             unit['waveform_mean'] = unit.pop('waveform')
             unit['waveform_sd'] = np.full(1, np.nan)
-            unit['good_trials'] = insertion_good_trials
+            unit['is_good_trials'] = is_good_trials
 
             for attr in list(unit.keys()):
                 if attr in units_omitted_attributes:
