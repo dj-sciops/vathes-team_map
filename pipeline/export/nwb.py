@@ -696,19 +696,23 @@ def export_recording(session_keys, output_dir='./',
     for session_key in session_keys:
         session_identifier = _get_session_identifier(session_key)
         # Write to .nwb
-        save_file_name = ''.join([session_identifier, '.nwb'])
-        output_fp = (output_dir / save_file_name).absolute()
         if overwrite or not output_fp.exists():
             nwbfile = datajoint_to_nwb(session_key)
+
+            if raw_ephys:
+                nwbfile = _to_raw_ephys_nwb(session_key,
+                                            linked_nwb_file=nwbfile, overwrite=False)
+                session_identifier += "_raw_ephys"
+            if raw_video:
+                nwbfile = _to_raw_video_nwb(session_key,
+                                            linked_nwb_file=nwbfile, overwrite=False)
+                session_identifier += "_raw_video"
+
+            output_fp = (output_dir / f"{session_identifier}.nwb").absolute()
             with NWBHDF5IO(output_fp.as_posix(), mode='w') as io:
                 io.write(nwbfile)
             print(f'\tWrite NWB 2.0 file: {output_fp.stem}')
-        if raw_ephys:
-            _to_raw_ephys_nwb(session_key,
-                              linked_nwb_file=output_fp, overwrite=False)
-        if raw_video:
-            _to_raw_video_nwb(session_key,
-                              linked_nwb_file=output_fp, overwrite=False)
+
         if validate:
             import nwbinspector
             with NWBHDF5IO(output_fp.as_posix(), mode='r') as io:
