@@ -70,7 +70,7 @@ zero_time = datetime.strptime(
 ).time()  # no precise time available
 
 
-def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
+def datajoint_to_nwb(session_key):
     """
     Generate one NWBFile object representing all data
      coming from the specified "session_key" (representing one session)
@@ -269,60 +269,6 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
             unit['electrode_group'] = electrode_group
 
             nwbfile.add_unit(**unit)
-
-        # ---- Raw Ephys Data ---
-        if raw_ephys:
-            import spikeinterface.extractors as se
-            from nwb_conversion_tools.tools.spikeinterface.spikeinterfacerecordingdatachunkiterator import (
-                SpikeInterfaceRecordingDataChunkIterator
-            )
-            ephys_root_data_dir = pathlib.Path(get_ephys_paths()[0])
-
-            ks_dir_relpath = (ephys_ingest.EphysIngest.EphysFile.proj(
-                ..., insertion_number='probe_insertion_number')
-                              & insert_key).fetch1('ephys_file')
-            ks_dir = ephys_root_data_dir / ks_dir_relpath
-            npx_dir = ks_dir.parent
-
-            try:
-                next(npx_dir.glob("*imec*.ap.bin"))
-            except StopIteration:
-                warnings.warn(f"No raw ephys file found at {npx_dir}")
-                continue
-            # except StopIteration:
-            #     raise FileNotFoundError(
-            #         f"No raw ephys file (.ap.bin) found at {npx_dir}"
-            #     )
-
-            sampling_rate = (
-                ephys.ProbeInsertion.RecordingSystemSetup & insert_key
-            ).fetch1("sampling_rate")
-            mapping = get_electrodes_mapping(nwbfile.electrodes)
-
-            extractor = se.read_spikeglx(npx_dir, load_sync_channel=True)
-
-            conversion_kwargs = gains_helper(extractor.get_channel_gains())
-
-            recording_channels_by_id = (
-                lab.ElectrodeConfig.Electrode * ephys.ProbeInsertion & insert_key
-            ).fetch("electrode")
-
-            nwbfile.add_acquisition(
-                pynwb.ecephys.ElectricalSeries(
-                    name=f"ElectricalSeries-{insert_key['insertion_number']}",
-                    description=f"Ephys recording from probe '{ephys_device.name}', at location: {insert_location}",
-                    data=SpikeInterfaceRecordingDataChunkIterator(extractor),
-                    rate=float(sampling_rate),
-                    electrodes=nwbfile.create_electrode_table_region(
-                        region=[
-                            mapping[(ephys_device.name, x)] for x in recording_channels_by_id
-                        ],
-                        name="electrodes",
-                        description="recorded electrodes",
-                    ),
-                    **conversion_kwargs,
-                )
-            )
 
     # =============================== PHOTO-STIMULATION ===============================
     stim_sites = {}
@@ -563,52 +509,174 @@ def datajoint_to_nwb(session_key, raw_ephys=False, raw_video=False):
         control_description=stim_sites,
     )
 
-    # ----- Raw Video Files -----
-    if raw_video:
-        dev_pos_folder_mapping = {
-            "side": "Side view",
-            "bottom": "Bottom view",
-            "body": "Body"
-        }
-
-        from nwb_conversion_tools.datainterfaces.behavior.movie.moviedatainterface import MovieInterface
-
-        tracking_root_data_dir = pathlib.Path(tracking_ingest.get_tracking_paths()[0])
-
-        tracking_files_info = (
-                tracking_ingest.TrackingIngest.TrackingFile
-                * tracking.TrackingDevice.proj('tracking_position')
-                & session_key).fetch(
-            as_dict=True, order_by='tracking_device, trial')
-        for tracking_file_info in tracking_files_info:
-            video_path = pathlib.Path(
-                tracking_root_data_dir
-                / dev_pos_folder_mapping[tracking_file_info.pop("tracking_position")]
-                / tracking_file_info.pop("tracking_file")
-            ).with_suffix(".mp4")
-            video_metadata = dict(
-                Behavior=dict(
-                    Movies=[
-                        dict(
-                            name=video_path.stem,
-                            description=video_path.as_posix(),
-                            unit="n.a.",
-                            format="external",
-                            starting_frame=[0, 0, 0],
-                            comments=str(tracking_file_info),
-                        )
-                    ]
-                )
-            )
-            try:
-                MovieInterface([video_path]).run_conversion(
-                    nwbfile=nwbfile, metadata=video_metadata, external_mode=False
-                )
-            except FileNotFoundError:
-                warnings.warn(f"No raw video file found at {video_path}.")
-                continue
-
     return nwbfile
+
+
+def _to_raw_ephys_nwb(session_key,
+                      linked_nwb_file,
+                      overwrite=False):
+    if isinstance(linked_nwb_file, pynwb.NWBFile):
+        raw_nwbfile = linked_nwb_file
+        external_link = False
+    else:
+        linked_nwb_file = pathlib.Path(linked_nwb_file)
+        raw_ephys_nwb_file = linked_nwb_file.parent / (linked_nwb_file.stem + "_raw_ephys.nwb")
+
+        if raw_ephys_nwb_file.exists() and not overwrite:
+            return
+
+        assert pathlib.Path(linked_nwb_file).exists()
+
+        io = NWBHDF5IO(linked_nwb_file, "r")
+        linked_nwbfile = io.read()
+        raw_nwbfile = linked_nwbfile.copy()
+        external_link = True
+
+    # ---- Raw Ephys Data ---
+    import spikeinterface.extractors as se
+    from nwb_conversion_tools.tools.spikeinterface.spikeinterfacerecordingdatachunkiterator import (
+        SpikeInterfaceRecordingDataChunkIterator
+    )
+    ephys_root_data_dir = pathlib.Path(get_ephys_paths()[0])
+
+    for insert_key in (ephys.ProbeInsertion & session_key).fetch("KEY"):
+        ks_dir_relpath = (ephys_ingest.EphysIngest.EphysFile.proj(
+            ..., insertion_number='probe_insertion_number')
+                          & insert_key).fetch1('ephys_file')
+        ks_dir = ephys_root_data_dir / ks_dir_relpath
+        npx_dir = ks_dir.parent
+
+        try:
+            next(npx_dir.glob("*imec*.ap.bin"))
+        except StopIteration:
+            warnings.warn(f"No raw ephys file found at {npx_dir}")
+            continue
+        # except StopIteration:
+        #     raise FileNotFoundError(
+        #         f"No raw ephys file (.ap.bin) found at {npx_dir}"
+        #     )
+        electrode_config = (lab.Probe * lab.ProbeType * lab.ElectrodeConfig
+                            * ephys.ProbeInsertion & insert_key).fetch1()
+        ephys_device_name = f'{electrode_config["probe"]} ({electrode_config["probe_type"]})'
+        ephys_device = raw_nwbfile.get_device(ephys_device_name)
+
+        sampling_rate = (
+                ephys.ProbeInsertion.RecordingSystemSetup & insert_key
+        ).fetch1("sampling_rate")
+        mapping = get_electrodes_mapping(raw_nwbfile.electrodes)
+
+        extractor = se.read_spikeglx(npx_dir, load_sync_channel=True)
+
+        conversion_kwargs = gains_helper(extractor.get_channel_gains())
+
+        recording_channels_by_id = (
+                lab.ElectrodeConfig.Electrode * ephys.ProbeInsertion & insert_key
+        ).fetch("electrode")
+
+        insert_location = raw_nwbfile.electrode_groups[
+            f'{electrode_config["probe"]} {electrode_config["electrode_config_name"]}'].location
+
+        raw_nwbfile.add_acquisition(
+            pynwb.ecephys.ElectricalSeries(
+                name=f"ElectricalSeries-{insert_key['insertion_number']}",
+                description=f"Ephys recording from probe '{ephys_device.name}', at location: {insert_location}",
+                data=SpikeInterfaceRecordingDataChunkIterator(extractor),
+                rate=float(sampling_rate),
+                electrodes=raw_nwbfile.create_electrode_table_region(
+                    region=[
+                        mapping[(ephys_device.name, x)] for x in recording_channels_by_id
+                    ],
+                    name="electrodes",
+                    description="recorded electrodes",
+                ),
+                **conversion_kwargs,
+            )
+        )
+
+    if external_link:
+        try:
+            with NWBHDF5IO(raw_ephys_nwb_file.as_posix(), mode='w', manager=io.manager) as raw_io:
+                raw_io.write(raw_nwbfile)
+                print(f'\t\tWrite NWB 2.0 file: {raw_ephys_nwb_file.stem}')
+        finally:
+            io.close()
+    else:
+        return raw_nwbfile
+
+
+def _to_raw_video_nwb(session_key,
+                      linked_nwb_file,
+                      overwrite=False):
+    if isinstance(linked_nwb_file, pynwb.NWBFile):
+        raw_nwbfile = linked_nwb_file
+        external_link = False
+    else:
+        linked_nwb_file = pathlib.Path(linked_nwb_file)
+        raw_video_nwb_file = linked_nwb_file.parent / (linked_nwb_file.stem + "_raw_video.nwb")
+
+        if raw_video_nwb_file.exists() and not overwrite:
+            return
+
+        assert pathlib.Path(linked_nwb_file).exists()
+
+        io = NWBHDF5IO(linked_nwb_file, "r")
+        linked_nwbfile = io.read()
+        raw_nwbfile = linked_nwbfile.copy()
+        external_link = True
+
+    # ----- Raw Video Files -----
+    dev_pos_folder_mapping = {
+        "side": "Side view",
+        "bottom": "Bottom view",
+        "body": "Body"
+    }
+
+    from nwb_conversion_tools.datainterfaces.behavior.movie.moviedatainterface import MovieInterface
+
+    tracking_root_data_dir = pathlib.Path(tracking_ingest.get_tracking_paths()[0])
+
+    tracking_files_info = (
+            tracking_ingest.TrackingIngest.TrackingFile
+            * tracking.TrackingDevice.proj('tracking_position')
+            & session_key).fetch(
+        as_dict=True, order_by='tracking_device, trial')
+    for tracking_file_info in tracking_files_info:
+        video_path = pathlib.Path(
+            tracking_root_data_dir
+            / dev_pos_folder_mapping[tracking_file_info.pop("tracking_position")]
+            / tracking_file_info.pop("tracking_file")
+        ).with_suffix(".mp4")
+        video_metadata = dict(
+            Behavior=dict(
+                Movies=[
+                    dict(
+                        name=video_path.stem,
+                        description=video_path.as_posix(),
+                        unit="n.a.",
+                        format="external",
+                        starting_frame=[0, 0, 0],
+                        comments=str(tracking_file_info),
+                    )
+                ]
+            )
+        )
+        try:
+            MovieInterface([video_path]).run_conversion(
+                nwbfile=raw_nwbfile, metadata=video_metadata, external_mode=False
+            )
+        except FileNotFoundError:
+            warnings.warn(f"No raw video file found at {video_path}.")
+            continue
+
+    if external_link:
+        try:
+            with NWBHDF5IO(raw_video_nwb_file.as_posix(), mode='w', manager=io.manager) as raw_io:
+                raw_io.write(raw_nwbfile)
+                print(f'\t\tWrite NWB 2.0 file: {raw_video_nwb_file.stem}')
+        finally:
+            io.close()
+    else:
+        return raw_nwbfile
 
 
 def _get_session_identifier(session_key):
@@ -631,10 +699,16 @@ def export_recording(session_keys, output_dir='./',
         save_file_name = ''.join([session_identifier, '.nwb'])
         output_fp = (output_dir / save_file_name).absolute()
         if overwrite or not output_fp.exists():
-            nwbfile = datajoint_to_nwb(session_key, raw_ephys=raw_ephys, raw_video=raw_video)
+            nwbfile = datajoint_to_nwb(session_key)
             with NWBHDF5IO(output_fp.as_posix(), mode='w') as io:
                 io.write(nwbfile)
-                print(f'\tWrite NWB 2.0 file: {save_file_name}')
+            print(f'\tWrite NWB 2.0 file: {output_fp.stem}')
+        if raw_ephys:
+            _to_raw_ephys_nwb(session_key,
+                              linked_nwb_file=output_fp, overwrite=False)
+        if raw_video:
+            _to_raw_video_nwb(session_key,
+                              linked_nwb_file=output_fp, overwrite=False)
         if validate:
             import nwbinspector
             with NWBHDF5IO(output_fp.as_posix(), mode='r') as io:

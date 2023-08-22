@@ -1,5 +1,6 @@
 import os
 import pathlib
+import datajoint as dj
 
 from pipeline import experiment
 from pipeline.export.nwb import export_recording
@@ -14,11 +15,13 @@ def export_to_nwb(limit=None):
     session_keys = (experiment.Session & (experiment.ProjectSession
                                           & {'project_name': project_name})).fetch(
         'KEY', limit=limit)
-    export_recording(session_keys, output_dir=output_dir, overwrite=False, validate=False)
+    export_recording(session_keys, output_dir=output_dir,
+                     overwrite=False, validate=False,
+                     raw_ephys=False, raw_video=False)
 
 
-dandiset_id = os.getenv('DANDISET_ID')
-dandi_api_key = os.getenv('DANDI_API_KEY')
+dandiset_id = os.getenv('DANDISET_ID', dj.config['custom'].get('DANDISET_ID'))
+dandi_api_key = os.getenv('DANDI_API_KEY', dj.config['custom'].get('DANDI_API_KEY'))
 
 
 def publish_to_dandi(dandiset_id, dandi_api_key):
