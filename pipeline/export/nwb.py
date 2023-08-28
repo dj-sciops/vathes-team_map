@@ -222,6 +222,16 @@ def datajoint_to_nwb(session_key):
                 shank=electrode['shank'], shank_col=electrode['shank_col'], shank_row=electrode['shank_row'],
                 location=electrode_group.location)
 
+        # add one more electrode for the SYNC channel
+        nwbfile.add_electrode(
+            electrode=max(electrode_query.fetch('electrode')) + 1,
+            group=electrode_group,
+            filtering='', imp=-1.,
+            x=np.nan, y=np.nan, z=np.nan,
+            rel_x=np.nan, rel_y=np.nan, rel_z=np.nan,
+            shank=-1, shank_col=-1, shank_row=-1,
+            location="N/A - SYNC")
+
         electrode_df = nwbfile.electrodes.to_dataframe()
 
         # ---- Units ----
@@ -563,6 +573,7 @@ def _to_raw_ephys_nwb(session_key,
         sampling_rate = (
                 ephys.ProbeInsertion.RecordingSystemSetup & insert_key
         ).fetch1("sampling_rate")
+
         mapping = get_electrodes_mapping(raw_nwbfile.electrodes)
 
         extractor = se.read_spikeglx(npx_dir, load_sync_channel=True)
@@ -572,6 +583,8 @@ def _to_raw_ephys_nwb(session_key,
         recording_channels_by_id = (
                 lab.ElectrodeConfig.Electrode * ephys.ProbeInsertion & insert_key
         ).fetch("electrode")
+        # add sync channel
+        recording_channels_by_id = np.concatenate([recording_channels_by_id, [max(recording_channels_by_id) + 1]])
 
         insert_location = raw_nwbfile.electrode_groups[
             f'{electrode_config["probe"]} {electrode_config["electrode_config_name"]}'].location
@@ -695,6 +708,9 @@ def export_recording(session_keys, output_dir='./',
 
     for session_key in session_keys:
         session_identifier = _get_session_identifier(session_key)
+        session_identifier += "_raw_ephys" if raw_ephys else ""
+        session_identifier += "_raw_video" if raw_video else ""
+        output_fp = (output_dir / f"{session_identifier}.nwb").absolute()
         # Write to .nwb
         if overwrite or not output_fp.exists():
             nwbfile = datajoint_to_nwb(session_key)
@@ -702,13 +718,10 @@ def export_recording(session_keys, output_dir='./',
             if raw_ephys:
                 nwbfile = _to_raw_ephys_nwb(session_key,
                                             linked_nwb_file=nwbfile, overwrite=False)
-                session_identifier += "_raw_ephys"
             if raw_video:
                 nwbfile = _to_raw_video_nwb(session_key,
                                             linked_nwb_file=nwbfile, overwrite=False)
-                session_identifier += "_raw_video"
 
-            output_fp = (output_dir / f"{session_identifier}.nwb").absolute()
             with NWBHDF5IO(output_fp.as_posix(), mode='w') as io:
                 io.write(nwbfile)
             print(f'\tWrite NWB 2.0 file: {output_fp.stem}')

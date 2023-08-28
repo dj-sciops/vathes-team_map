@@ -6,6 +6,8 @@ from pipeline import experiment
 from pipeline.experiment import get_wr_sessdatetime
 from pipeline.export.nwb import export_recording
 
+#dj.conn().set_query_cache('s0')
+
 output_dir = pathlib.Path(r'E:/map/NWB_EXPORT/delay_response')
 
 project_name = 'Brain-wide neural activity underlying memory-guided movement'
@@ -22,7 +24,7 @@ def export_to_nwb(limit=None):
         download_raw_video(session_key)
         export_recording(session_key, output_dir=output_dir,
                          overwrite=False, validate=False,
-                         raw_ephys=False, raw_video=True)
+                         raw_ephys=True, raw_video=True)
 
 
 dandiset_id = os.getenv('DANDISET_ID', dj.config['custom'].get('DANDISET_ID'))
