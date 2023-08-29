@@ -10,7 +10,6 @@ from . import lab
 from . import experiment
 from . import ephys
 
-from pipeline.globus import GlobusStorageManager
 from . import get_schema_name, create_schema_settings
 
 PUBLICATION_TRANSFER_TIMEOUT = 10000
@@ -410,6 +409,7 @@ class ArchivedRawEphys(dj.Imported):
     globus_alias = 'raw-ephys'
 
     def get_gsm(self):
+        from pipeline.globus import GlobusStorageManager
         log.debug('ArchivedRawEphysTrial.get_gsm()')
         if self.gsm is None:
             self.gsm = GlobusStorageManager()
@@ -772,6 +772,7 @@ class ArchivedTrackingVideo(dj.Imported):
         return cls.ingest
 
     def get_gsm(self):
+        from pipeline.globus import GlobusStorageManager
         log.debug('ArchivedVideoFile.get_gsm()')
         if self.gsm is None:
             self.gsm = GlobusStorageManager()
