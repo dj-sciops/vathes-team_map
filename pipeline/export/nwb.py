@@ -655,10 +655,13 @@ def _to_raw_video_nwb(session_key,
             & session_key).fetch(
         as_dict=True, order_by='tracking_device, trial')
     for tracking_file_info in tracking_files_info:
+        trk_file = tracking_file_info.pop("tracking_file")
+        trk_file = pathlib.Path(str(trk_file).replace("\\", "/"))
+
         video_path = pathlib.Path(
             tracking_root_data_dir
             / DEV_POS_FOLDER_MAPPING[tracking_file_info.pop("tracking_position")]
-            / tracking_file_info.pop("tracking_file")
+            / trk_file
         ).with_suffix(".mp4")
         video_metadata = dict(
             Behavior=dict(

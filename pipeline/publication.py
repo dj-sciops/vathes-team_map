@@ -16,7 +16,6 @@ PUBLICATION_TRANSFER_TIMEOUT = 10000
 schema = dj.schema(get_schema_name('publication'), **create_schema_settings)
 
 log = logging.getLogger(__name__)
-__all__ = [experiment, ephys]
 
 
 @schema
@@ -1247,7 +1246,8 @@ def download_raw_video(session_key):
                           & (tracking.Tracking & session_key)).fetch('tracking_position')
     _one_file = (tracking_ingest.TrackingIngest.TrackingFile
                  & session_key).fetch('tracking_file', limit=1)[0]
-    sess_dir_name = pathlib.Path(_one_file).parts[1]
+    _one_file = pathlib.Path(str(_one_file).replace("\\", "/"))
+    sess_dir_name = _one_file.parts[1]
 
     sess_local_paths = []
     for trk_pos in tracking_positions:
