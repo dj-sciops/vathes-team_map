@@ -2,11 +2,9 @@ import os
 import pathlib
 import datajoint as dj
 
-from pipeline import experiment
+from pipeline.export.nwb import export_recording, DEV_POS_FOLDER_MAPPING
+from pipeline.export.nwb import experiment, tracking, tracking_ingest
 from pipeline.experiment import get_wr_sessdatetime
-from pipeline.export.nwb import export_recording
-
-#dj.conn().set_query_cache('s0')
 
 output_dir = pathlib.Path(r'E:/map/NWB_EXPORT/delay_response')
 
@@ -46,7 +44,7 @@ def publish_to_dandi(dandiset_id, dandi_api_key):
         sync=False,
         existing='overwrite')
 
-# ---------- Download raw ephys files ------------
+# ---------- Download raw ephys/video files ------------
 # requires `djsciops` package for fast s3 download (or you can use boto3)
 # pip install git+https://github.com/dj-sciops/djsciops-python.git
 
@@ -93,29 +91,45 @@ def download_raw_ephys(session_key):
         permit_regex=r".*\.ap\.(meta|bin)",
     )
 
-
-# ---------- Download raw video files ------------
-# from mounted Google Drive
+    return [sess_local_path]
 
 
 VIDEO_LOCAL_DIR = pathlib.Path(dj.config['custom']['tracking_data_paths'][0])
-VIDEO_REMOTE_DIR = pathlib.Path(r'G:/.shortcut-targets-by-id/1fNJy5IkEqUZJUaB0KHs1cLiuTguvxgFr/Compressed MAP Videos')
+VIDEO_REMOTE_DIR = r'map_raw_data/behavior_videos/CompressedVideos'
 
 
 def download_raw_video(session_key):
-    import shutil
-
     wr, _ = get_wr_sessdatetime(session_key)
-    sess_date, sess_time = (experiment.Session & session_key).fetch1(
-        'session_date', 'session_time')
-    sess_date_str = sess_date.strftime('%m%d%y')
+    tracking_positions = (tracking.TrackingDevice
+                          & (tracking.Tracking & session_key)).fetch('tracking_position')
+    _one_file = (tracking_ingest.TrackingIngest.TrackingFile
+                 & session_key).fetch('tracking_file', limit=1)[0]
+    sess_dir_name = pathlib.Path(_one_file).parts[1]
 
-    srcs = ([d for d in VIDEO_REMOTE_DIR.glob(f'*/{wr}/{wr}_{sess_date_str}')
-             if d.is_dir()]
-            + [d for d in VIDEO_REMOTE_DIR.glob(f'*/{wr}_{sess_date_str}')
-               if d.is_dir()])
-    dsts = [VIDEO_LOCAL_DIR / d.relative_to(VIDEO_REMOTE_DIR) for d in srcs]
+    sess_local_paths = []
+    for trk_pos in tracking_positions:
+        camera_str = DEV_POS_FOLDER_MAPPING[trk_pos]
+        sess_remote_path = f"{VIDEO_REMOTE_DIR}/{camera_str}/{sess_dir_name}/"
+        sess_local_path = VIDEO_LOCAL_DIR / camera_str / wr / f"{sess_dir_name}"
 
-    for src, dst in zip(srcs, dsts):
-        dst.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(src, dst, dirs_exist_ok=True)
+        file_list = dj_axon.list_files(
+            session=s3_session,
+            s3_bucket=s3_bucket,
+            s3_prefix=sess_remote_path,
+            permit_regex=r".*\.mp4",
+            include_contents_hash=False,
+            as_tree=False,
+        )
+        total_gb = sum(f['_size'] for f in file_list) * 1e-9
+        print(f"Total GB to download: {total_gb}")
+        dj_axon.download_files(
+            session=s3_session,
+            s3_bucket=s3_bucket,
+            source=sess_remote_path,
+            destination=f'{sess_local_path}{os.sep}',
+            permit_regex=r".*\.mp4",
+        )
+
+        sess_local_paths.append(sess_local_path)
+
+    return sess_local_paths

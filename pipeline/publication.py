@@ -1,4 +1,3 @@
-
 import logging
 import os
 
@@ -1065,3 +1064,214 @@ class ArchivedTrackingVideo(dj.Imported):
                 emsg = "couldn't transfer {} to {}".format(srcp, dstp)
                 log.error(emsg)
                 raise dj.DataJointError(emsg)
+
+
+# ---- NWB export & DANDI publication ----
+
+import os
+import pathlib
+import datajoint as dj
+from datetime import datetime
+import shutil
+
+from pipeline.export.nwb import (experiment,
+                                 tracking,
+                                 tracking_ingest,
+                                 export_recording,
+                                 DEV_POS_FOLDER_MAPPING,
+                                 _get_session_identifier)
+from pipeline.experiment import get_wr_sessdatetime
+
+
+NWB_export_dir = pathlib.Path(dj.config['custom']['NWB_export_dir'])
+NWB_export_raw_ephys = bool(dj.config['custom']['NWB_export_raw_ephys'])
+NWB_export_raw_video = bool(dj.config['custom']['NWB_export_raw_video'])
+
+
+@schema
+class NWBFileExport(dj.Computed):
+    definition = """
+    -> experiment.Session
+    ---
+    export_start_time: datetime
+    file_creation_time: datetime
+    nwb_export_dir: varchar(1000)
+    nwb_filename: varchar(1000)
+    raw_ephys: bool
+    raw_video: bool
+    file_size: float  # (byte) size of the exported NWB file
+    """
+
+    @property
+    def key_source(self):
+        project_name = 'Brain-wide neural activity underlying memory-guided movement'
+        return (experiment.Session
+                & (experiment.ProjectSession
+                   & {'project_name': project_name}))
+
+    def make(self, key):
+        start_time = datetime.now()
+
+        output_dir = NWB_export_dir / _get_session_identifier(key)
+
+        download_raw_ephys(key)
+        download_raw_video(key)
+        nwb_filepath = export_recording(
+            key,
+            output_dir=output_dir,
+            overwrite=False,
+            validate=False,
+            raw_ephys=NWB_export_raw_ephys,
+            raw_video=NWB_export_raw_video)
+        nwb_filepath = nwb_filepath[0]
+
+        self.insert1({
+            **key,
+            'export_start_time': start_time,
+            'file_creation_time': datetime.fromtimestamp(nwb_filepath.stat().st_ctime),
+            'nwb_export_dir': output_dir.as_posix(),
+            'nwb_filename': nwb_filepath.name,
+            'raw_ephys': NWB_export_raw_ephys,
+            'raw_video': NWB_export_raw_video,
+            'file_size': nwb_filepath.stat().st_size
+        })
+
+
+@schema
+class DANDIupload(dj.Computed):
+    definition = """
+    -> NWBFileExport
+    """
+
+    def make(self, key):
+        from element_interface.dandi import upload_to_dandi
+
+        dandiset_id = os.getenv('DANDISET_ID', dj.config['custom'].get('DANDISET_ID'))
+        dandi_api_key = os.getenv('DANDI_API_KEY', dj.config['custom'].get('DANDI_API_KEY'))
+
+        nwb_dir, nwb_filename = (NWBFileExport & key).fetch1('nwb_export_dir', 'nwb_filename')
+        nwb_dir = pathlib.Path(nwb_dir)
+        nwb_filepath = nwb_dir / nwb_filename
+        if not nwb_filepath.exists():
+            raise FileNotFoundError(f"{nwb_filepath} does not exist!")
+
+        dandiset_dir = NWB_export_dir.parent / f"{NWB_export_dir.name}_DANDI" / nwb_dir.name
+        dandiset_dir.mkdir(parents=True, exist_ok=True)
+
+        upload_to_dandi(
+            data_directory=nwb_dir,
+            dandiset_id=dandiset_id,
+            staging=False,
+            working_directory=dandiset_dir,
+            api_key=dandi_api_key,
+            sync=False,
+            existing='overwrite')
+
+        self.insert1(key)
+
+        # delete the exported NWB file after DANDI upload
+        delete_post_upload = os.getenv('DELETE_POST_UPLOAD', dj.config['custom'].get('DELETE_POST_UPLOAD', False))
+        if delete_post_upload:
+            if nwb_dir.exists():
+                shutil.rmtree(nwb_dir)
+            if dandiset_dir.exists():
+                shutil.rmtree(dandiset_dir)
+
+
+# ---------- Download raw ephys/video files ------------
+# requires `djsciops` package for fast s3 download (or you can use boto3)
+# pip install git+https://github.com/dj-sciops/djsciops-python.git
+import datajoint as dj
+import boto3
+import djsciops.axon as dj_axon
+
+
+s3_session, s3_bucket = None, None
+EPHYS_LOCAL_DIR = pathlib.Path(dj.config['custom']['ephys_data_paths'][0])
+EPHYS_REMOTE_DIR = r'map_raw_data/behavior_videos/NewSorting'
+VIDEO_LOCAL_DIR = pathlib.Path(dj.config['custom']['tracking_data_paths'][0])
+VIDEO_REMOTE_DIR = r'map_raw_data/behavior_videos/CompressedVideos'
+
+
+def _get_s3_session():
+    global s3_session, s3_bucket
+    if s3_session is None:
+        s3_session = boto3.session.Session(
+            aws_access_key_id=dj.config['stores']['map_sharing']['access_key'],
+            aws_secret_access_key=dj.config['stores']['map_sharing']['secret_key'])
+        s3_session.s3 = s3_session.resource("s3")
+        s3_bucket = dj.config['stores']['map_sharing']['bucket']
+    return s3_session, s3_bucket
+
+
+def download_raw_ephys(session_key):
+    _s3_session, _s3_bucket = _get_s3_session()
+
+    wr, _ = get_wr_sessdatetime(session_key)
+    sess_date, sess_time = (experiment.Session & session_key).fetch1(
+        'session_date', 'session_time')
+    sess_date_str = sess_date.strftime('%m%d%y')
+
+    sess_relpath = f"{wr}_out/results/catgt_{wr}_{sess_date_str}_g0"
+
+    sess_remote_path = f"{EPHYS_REMOTE_DIR}/{sess_relpath}/"
+    sess_local_path = EPHYS_LOCAL_DIR / sess_relpath
+
+    file_list = dj_axon.list_files(
+        session=_s3_session,
+        s3_bucket=_s3_bucket,
+        s3_prefix=sess_remote_path,
+        permit_regex=r".*\.ap\.(meta|bin)",
+        include_contents_hash=False,
+        as_tree=False,
+    )
+    total_gb = sum(f['_size'] for f in file_list) * 1e-9
+    print(f"Total GB to download: {total_gb}")
+    dj_axon.download_files(
+        session=_s3_session,
+        s3_bucket=_s3_bucket,
+        source=sess_remote_path,
+        destination=f'{sess_local_path}{os.sep}',
+        permit_regex=r".*\.ap\.(meta|bin)",
+    )
+
+    return [sess_local_path]
+
+
+def download_raw_video(session_key):
+    _s3_session, _s3_bucket = _get_s3_session()
+
+    wr, _ = get_wr_sessdatetime(session_key)
+    tracking_positions = (tracking.TrackingDevice
+                          & (tracking.Tracking & session_key)).fetch('tracking_position')
+    _one_file = (tracking_ingest.TrackingIngest.TrackingFile
+                 & session_key).fetch('tracking_file', limit=1)[0]
+    sess_dir_name = pathlib.Path(_one_file).parts[1]
+
+    sess_local_paths = []
+    for trk_pos in tracking_positions:
+        camera_str = DEV_POS_FOLDER_MAPPING[trk_pos]
+        sess_remote_path = f"{VIDEO_REMOTE_DIR}/{camera_str}/{sess_dir_name}/"
+        sess_local_path = VIDEO_LOCAL_DIR / camera_str / wr / f"{sess_dir_name}"
+
+        file_list = dj_axon.list_files(
+            session=_s3_session,
+            s3_bucket=_s3_bucket,
+            s3_prefix=sess_remote_path,
+            permit_regex=r".*\.mp4",
+            include_contents_hash=False,
+            as_tree=False,
+        )
+        total_gb = sum(f['_size'] for f in file_list) * 1e-9
+        print(f"Total GB to download: {total_gb}")
+        dj_axon.download_files(
+            session=_s3_session,
+            s3_bucket=_s3_bucket,
+            source=sess_remote_path,
+            destination=f'{sess_local_path}{os.sep}',
+            permit_regex=r".*\.mp4",
+        )
+
+        sess_local_paths.append(sess_local_path)
+
+    return sess_local_paths

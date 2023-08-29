@@ -69,6 +69,13 @@ zero_time = datetime.strptime(
     "00:00:00", "%H:%M:%S"
 ).time()  # no precise time available
 
+DEV_POS_FOLDER_MAPPING = {
+    "side": "Face",
+    "bottom": "Bottom",
+    "body": "Body"
+}
+
+# NWB exports
 
 def datajoint_to_nwb(session_key):
     """
@@ -638,12 +645,6 @@ def _to_raw_video_nwb(session_key,
         external_link = True
 
     # ----- Raw Video Files -----
-    dev_pos_folder_mapping = {
-        "side": "Side view",
-        "bottom": "Bottom view",
-        "body": "Body"
-    }
-
     from nwb_conversion_tools.datainterfaces.behavior.movie.moviedatainterface import MovieInterface
 
     tracking_root_data_dir = pathlib.Path(tracking_ingest.get_tracking_paths()[0])
@@ -656,7 +657,7 @@ def _to_raw_video_nwb(session_key,
     for tracking_file_info in tracking_files_info:
         video_path = pathlib.Path(
             tracking_root_data_dir
-            / dev_pos_folder_mapping[tracking_file_info.pop("tracking_position")]
+            / DEV_POS_FOLDER_MAPPING[tracking_file_info.pop("tracking_position")]
             / tracking_file_info.pop("tracking_file")
         ).with_suffix(".mp4")
         video_metadata = dict(
@@ -706,6 +707,7 @@ def export_recording(session_keys, output_dir='./',
     output_dir = pathlib.Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    output_fullpaths = []
     for session_key in session_keys:
         session_identifier = _get_session_identifier(session_key)
         session_identifier += "_raw_ephys" if raw_ephys else ""
@@ -733,3 +735,7 @@ def export_recording(session_keys, output_dir='./',
             print(validation_status)
             for inspection_message in nwbinspector.inspect_all(path=output_fp):
                 print(inspection_message)
+
+        output_fullpaths.append(output_fp)
+
+    return output_fullpaths
