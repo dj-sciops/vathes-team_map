@@ -1138,10 +1138,15 @@ class NWBFileExport(dj.Computed):
 class DANDIupload(dj.Computed):
     definition = """
     -> NWBFileExport
+    ---
+    upload_start_time: datetime
+    upload_completion_time: datetime
     """
 
     def make(self, key):
         from element_interface.dandi import upload_to_dandi
+
+        start_time = datetime.now()
 
         dandiset_id = os.getenv('DANDISET_ID', dj.config['custom'].get('DANDISET_ID'))
         dandi_api_key = os.getenv('DANDI_API_KEY', dj.config['custom'].get('DANDI_API_KEY'))
@@ -1164,7 +1169,7 @@ class DANDIupload(dj.Computed):
             sync=False,
             existing='overwrite')
 
-        self.insert1(key)
+        self.insert1({**key, 'upload_start_time': start_time, 'upload_completion_time': datetime.now()})
 
         # delete the exported NWB file after DANDI upload
         delete_post_upload = os.getenv('DELETE_POST_UPLOAD', dj.config['custom'].get('DELETE_POST_UPLOAD', False))
