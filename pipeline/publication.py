@@ -1,21 +1,18 @@
-import logging
-import os
-
+import datajoint as dj
 from fnmatch import fnmatch
 from textwrap import dedent
 
-import datajoint as dj
-
-from . import lab
-from . import experiment
-from . import ephys
-
+from . import lab, experiment, ephys
 from . import get_schema_name, create_schema_settings
 
 PUBLICATION_TRANSFER_TIMEOUT = 10000
 schema = dj.schema(get_schema_name('publication'), **create_schema_settings)
 
-log = logging.getLogger(__name__)
+try:
+    logger = dj.logger
+except Exception:
+    import logging
+    logger = logging.getLogger(__name__)
 
 
 @schema
@@ -409,7 +406,7 @@ class ArchivedRawEphys(dj.Imported):
 
     def get_gsm(self):
         from pipeline.globus import GlobusStorageManager
-        log.debug('ArchivedRawEphysTrial.get_gsm()')
+        logger.debug('ArchivedRawEphysTrial.get_gsm()')
         if self.gsm is None:
             self.gsm = GlobusStorageManager()
             self.gsm.wait_timeout = PUBLICATION_TRANSFER_TIMEOUT
@@ -437,10 +434,10 @@ class ArchivedRawEphys(dj.Imported):
         self = cls()
         keys = self.key_source - self
 
-        log.info('attempting discovery for {} sessions'.format(len(keys)))
+        logger.info('attempting discovery for {} sessions'.format(len(keys)))
 
         for key in keys:
-            log.debug('discover calling make_discover for {}'.format(key))
+            logger.debug('discover calling make_discover for {}'.format(key))
             self.make_discover(key)
 
     def make_discover(self, key):
@@ -448,7 +445,7 @@ class ArchivedRawEphys(dj.Imported):
         Discover files on globus and attempt to register them.
         """
         def build_session(self, key):
-            log.debug('discover: build_session {}'.format(key))
+            logger.debug('discover: build_session {}'.format(key))
 
             gsm = self.get_gsm()
             globus_alias = self.globus_alias
@@ -470,7 +467,7 @@ class ArchivedRawEphys(dj.Imported):
                             as_dict=True, order_by='session')
 
             if len(msess) == 1:
-                log.info('processing single session/day case')
+                logger.info('processing single session/day case')
 
                 # session: <root>/<h2o>/catgt_<h2o>_<mdy>_g0/
                 # probe: <root>/<h2o>/catgt_<h2o>_<mdy>_g0/<h2o>_<mdy>_imecN
@@ -480,10 +477,10 @@ class ArchivedRawEphys(dj.Imported):
 
                 rep_tgt = '{}:{}'.format(rep, rpath)
 
-                log.debug('.. rpath: {}'.format(rpath))
+                logger.debug('.. rpath: {}'.format(rpath))
 
                 if not gsm.ls(rep_tgt):
-                    log.info('no globus data found for {} session {}'.format(
+                    logger.info('no globus data found for {} session {}'.format(
                         h2o, key['session']))
                     return None
 
@@ -507,7 +504,7 @@ class ArchivedRawEphys(dj.Imported):
                         'file_type': ftype['file_type']
                     }
 
-                    log.debug('.. file: {}'.format(dsfile))
+                    logger.debug('.. file: {}'.format(dsfile))
 
                     dsfiles.append({**dskey, **dsfile})
 
@@ -521,17 +518,17 @@ class ArchivedRawEphys(dj.Imported):
                 #   either transfer apdata local mess, or manuallly register
                 #     if b: need to have an explicit 'discover1' method
                 #     to allow for manual registration of on petrel data
-                log.warning('multi session/day case not yet handled')
+                logger.warning('multi session/day case not yet handled')
                 return None
 
             else:
-                log.error('key -> multisession query problem. skipping')
+                logger.error('key -> multisession query problem. skipping')
                 return None
 
             return dsrec, dsfiles
 
         def commit_session(self, key, data):
-            log.info('commit_session: {}'.format(key))
+            logger.info('commit_session: {}'.format(key))
 
             with dj.conn().transaction:
 
@@ -541,7 +538,7 @@ class ArchivedRawEphys(dj.Imported):
                 self.insert1({**key, **data[0]}, ignore_extra_fields=True,
                              allow_direct_insert=True)
 
-        log.info('.. make_discover {} {}'.format(
+        logger.info('.. make_discover {} {}'.format(
             key['subject_id'], key['session']))
 
         data = build_session(self, key)
@@ -555,7 +552,7 @@ class ArchivedRawEphys(dj.Imported):
         """
         def build_session(self, key):
 
-            log.debug('build_session: {} '.format(key))
+            logger.debug('build_session: {} '.format(key))
 
             # Get session related information needed for filenames/records
             sinfo = (lab.WaterRestriction
@@ -574,7 +571,7 @@ class ArchivedRawEphys(dj.Imported):
                                      le['endpoint_subdir'],
                                      le['endpoint_path'])
 
-            log.debug('local_endpoint: {}:{} -> {}'.format(
+            logger.debug('local_endpoint: {}:{} -> {}'.format(
                 lep, lep_sub, lep_dir))
 
             # check for multi-session/day
@@ -584,7 +581,7 @@ class ArchivedRawEphys(dj.Imported):
                             as_dict=True, order_by='session')
 
             if len(msess) == 1:
-                log.info('processing single session/day case')
+                logger.info('processing single session/day case')
 
                 # session: <root>/<h2o>/catgt_<h2o>_<mdy>_g0/
                 # probe: <root>/<h2o>/catgt_<h2o>_<mdy>_g0/<h2o>_<mdy>_imecN
@@ -593,7 +590,7 @@ class ArchivedRawEphys(dj.Imported):
                     h2o, sdate_mdy))
 
                 if not os.path.exists(lpath):
-                    log.warning('session directory {} not found'.format(
+                    logger.warning('session directory {} not found'.format(
                         lpath))
                     return None
 
@@ -606,7 +603,7 @@ class ArchivedRawEphys(dj.Imported):
                 dsfiles = []
 
                 for cwd, dirs, files in os.walk(lpath):
-                    log.debug('.. entering directory: {}'.format(cwd))
+                    logger.debug('.. entering directory: {}'.format(cwd))
 
                     for f in files:
 
@@ -618,22 +615,22 @@ class ArchivedRawEphys(dj.Imported):
                             'file_type': ftype['file_type']
                         }
 
-                        log.debug('.... file: {}'.format(dsfile))
+                        logger.debug('.... file: {}'.format(dsfile))
 
                         dsfiles.append({**dskey, **dsfile})
 
             elif len(msess) > 1:
-                log.info('multi session/day case not yet handled')
+                logger.info('multi session/day case not yet handled')
                 return None
             else:
-                log.error('key -> multisession query problem. skipping')
+                logger.error('key -> multisession query problem. skipping')
                 return None
 
             return dsrec, dsfiles
 
         def transfer_session(self, key, data):
 
-            log.debug('transfer_session: {} '.format(key))
+            logger.debug('transfer_session: {} '.format(key))
 
             gsm = self.get_gsm()
             globus_alias = 'raw-ephys'
@@ -655,17 +652,17 @@ class ArchivedRawEphys(dj.Imported):
                 srcp = '{}:{}/{}'.format(lep, lep_sub, fsp)
                 dstp = '{}:{}/{}'.format(rep, rep_sub, fsp)
 
-                log.info('transferring {} to {}'.format(srcp, dstp))
+                logger.info('transferring {} to {}'.format(srcp, dstp))
 
                 # XXX: check if exists 1st?
                 if not gsm.cp(srcp, dstp):
                     emsg = "couldn't transfer {} to {}".format(srcp, dstp)
-                    log.error(emsg)
+                    logger.error(emsg)
                     raise dj.DataJointError(emsg)
 
         def commit_session(self, key, data):
 
-            log.debug('commit_session: {}'.format(key))
+            logger.debug('commit_session: {}'.format(key))
 
             DataSet.insert1(data[0])
             DataSet.PhysicalFile.insert(data[1])
@@ -675,7 +672,7 @@ class ArchivedRawEphys(dj.Imported):
 
         # main():
 
-        log.debug('make: {}'.format(key))
+        logger.debug('make: {}'.format(key))
 
         data = build_session(self, key)
 
@@ -696,7 +693,7 @@ class ArchivedRawEphys(dj.Imported):
         """
         self = cls()
 
-        log.info(str(key))
+        logger.info(str(key))
 
         lep = GlobusStorageLocation().local_endpoint(key['globus_alias'])
         lep, lep_sub, lep_dir = (
@@ -704,8 +701,8 @@ class ArchivedRawEphys(dj.Imported):
 
         repname, rep, rep_sub = (GlobusStorageLocation() & key).fetch()[0]
 
-        log.info('local_endpoint: {}:{} -> {}'.format(lep, lep_sub, lep_dir))
-        log.info('remote_endpoint: {}:{}'.format(rep, rep_sub))
+        logger.info('local_endpoint: {}:{} -> {}'.format(lep, lep_sub, lep_dir))
+        logger.info('remote_endpoint: {}:{}'.format(rep, rep_sub))
 
         # filter file and session attributes by key
         finfo = ((DataSet * DataSet.PhysicalFile & key)
@@ -719,12 +716,12 @@ class ArchivedRawEphys(dj.Imported):
             srcp = '{}:/{}/{}'.format(rep, rep_sub, f['file_subpath'])
             dstp = '{}:/{}/{}'.format(lep, lep_sub, f['file_subpath'])
 
-            log.info('transferring {} to {}'.format(srcp, dstp))
+            logger.info('transferring {} to {}'.format(srcp, dstp))
 
             # XXX: check if exists 1st? (manually or via API copy-checksum)
             if not gsm.cp(srcp, dstp):
                 emsg = "couldn't transfer {} to {}".format(srcp, dstp)
-                log.error(emsg)
+                logger.error(emsg)
                 raise dj.DataJointError(emsg)
 
 
@@ -763,7 +760,7 @@ class ArchivedTrackingVideo(dj.Imported):
         return tracking_ingest module
         not imported globally to prevent ingest schema creation for client case
         '''
-        log.debug('ArchivedVideoFile.get_ingest()')
+        logger.debug('ArchivedVideoFile.get_ingest()')
         if cls.ingest is None:
             from .ingest import tracking as tracking_ingest
             cls.ingest = tracking_ingest
@@ -772,7 +769,7 @@ class ArchivedTrackingVideo(dj.Imported):
 
     def get_gsm(self):
         from pipeline.globus import GlobusStorageManager
-        log.debug('ArchivedVideoFile.get_gsm()')
+        logger.debug('ArchivedVideoFile.get_gsm()')
         if self.gsm is None:
             self.gsm = GlobusStorageManager()
             self.gsm.wait_timeout = PUBLICATION_TRANSFER_TIMEOUT
@@ -792,7 +789,7 @@ class ArchivedTrackingVideo(dj.Imported):
             working with: /SC026/08082019/video/SC026_side_735-NNNN.avi
             '''
 
-            log.info('build_session: {}'.format(key))
+            logger.info('build_session: {}'.format(key))
 
             gsm = self.get_gsm()
             globus_alias = 'raw-video'
@@ -814,16 +811,16 @@ class ArchivedTrackingVideo(dj.Imported):
                             as_dict=True, order_by='session')
 
             if len(msess) == 1:
-                log.info('processing single session/day case')
+                logger.info('processing single session/day case')
 
                 rpath = '/'.join((rep_sub, h2o, sdate_mdy))
 
                 rep_tgt = '{}:{}'.format(rep, rpath)
 
-                log.debug('.. rpath: {}'.format(rpath))
+                logger.debug('.. rpath: {}'.format(rpath))
 
                 if not gsm.ls(rep_tgt):
-                    log.info('no globus data found for {} session {}'.format(
+                    logger.info('no globus data found for {} session {}'.format(
                         h2o, key['session']))
                     return None
 
@@ -849,22 +846,22 @@ class ArchivedTrackingVideo(dj.Imported):
                         'file_type': ftype['file_type']
                     }
 
-                    log.debug('.. file: {}'.format(dsfile))
+                    logger.debug('.. file: {}'.format(dsfile))
 
                     dsfiles.append({**dskey, **dsfile})
 
             elif len(msess) > 1:
-                log.warning('multi session/day case not yet handled')
+                logger.warning('multi session/day case not yet handled')
                 return None
 
             else:
-                log.error('key -> multisession query problem. skipping')
+                logger.error('key -> multisession query problem. skipping')
                 return None
 
             return dsrec, dsfiles
 
         def commit_session(self, key, data):
-            log.info('commit_session: {}'.format(key))
+            logger.info('commit_session: {}'.format(key))
 
             with dj.conn().transaction:
 
@@ -877,11 +874,11 @@ class ArchivedTrackingVideo(dj.Imported):
         self = cls()
         keys = self.key_source - self
 
-        log.info('attempting discovery for {} sessions'.format(len(keys)))
+        logger.info('attempting discovery for {} sessions'.format(len(keys)))
 
         for key in keys:
 
-            log.info('.. inspecting {} {}'.format(
+            logger.info('.. inspecting {} {}'.format(
                 key['subject_id'], key['session']))
 
             data = build_session(self, key)
@@ -895,7 +892,7 @@ class ArchivedTrackingVideo(dj.Imported):
         """
         def build_session(self, key):
 
-            log.debug('build_session: {}'.format(key))
+            logger.debug('build_session: {}'.format(key))
 
             # Get session related information needed for filenames/records
             sinfo = (lab.WaterRestriction
@@ -914,7 +911,7 @@ class ArchivedTrackingVideo(dj.Imported):
                                      le['endpoint_subdir'],
                                      le['endpoint_path'])
 
-            log.debug('local_endpoint: {}:{} -> {}'.format(
+            logger.debug('local_endpoint: {}:{} -> {}'.format(
                 lep, lep_sub, lep_dir))
 
             # check for multi-session/day
@@ -924,14 +921,14 @@ class ArchivedTrackingVideo(dj.Imported):
                             as_dict=True, order_by='session')
 
             if len(msess) == 1:
-                log.info('processing single session/day case')
+                logger.info('processing single session/day case')
 
                 # <root>/<h2o>/MMDDYYYY/video/<h2o>_<campos>_NNN-NNN.{avi}
 
                 lpath = os.path.join((lep_dir, h2o, sdate_mdy))
 
                 if not os.path.exists(lpath):
-                    log.warning('session directory {} not found'.format(
+                    logger.warning('session directory {} not found'.format(
                         lpath))
                     return None
 
@@ -944,7 +941,7 @@ class ArchivedTrackingVideo(dj.Imported):
                 dsfiles = []
 
                 for cwd, dirs, files in os.walk(lpath):
-                    log.debug('.. entering directory: {}'.format(cwd))
+                    logger.debug('.. entering directory: {}'.format(cwd))
 
                     for f in files:
 
@@ -956,22 +953,22 @@ class ArchivedTrackingVideo(dj.Imported):
                             'file_type': ftype['file_type']
                         }
 
-                        log.debug('.... file: {}'.format(dsfile))
+                        logger.debug('.... file: {}'.format(dsfile))
 
                         dsfiles.append({**dskey, **dsfile})
 
             elif len(msess) > 1:
-                log.info('multi session/day case not yet handled')
+                logger.info('multi session/day case not yet handled')
                 return None
             else:
-                log.error('key -> multisession query problem. skipping')
+                logger.error('key -> multisession query problem. skipping')
                 return None
 
             return dsrec, dsfiles
 
         def transfer_session(self, key, data):
 
-            log.debug('transfer_session: {} '.format(key))
+            logger.debug('transfer_session: {} '.format(key))
 
             gsm = self.get_gsm()
             globus_alias = 'raw-video'
@@ -993,17 +990,17 @@ class ArchivedTrackingVideo(dj.Imported):
                 srcp = '{}:{}/{}'.format(lep, lep_sub, fsp)
                 dstp = '{}:{}/{}'.format(rep, rep_sub, fsp)
 
-                log.info('transferring {} to {}'.format(srcp, dstp))
+                logger.info('transferring {} to {}'.format(srcp, dstp))
 
                 # XXX: check if exists 1st?
                 if not gsm.cp(srcp, dstp):
                     emsg = "couldn't transfer {} to {}".format(srcp, dstp)
-                    log.error(emsg)
+                    logger.error(emsg)
                     raise dj.DataJointError(emsg)
 
         def commit_session(self, key, data):
 
-            log.debug('commit_session: {}'.format(key))
+            logger.debug('commit_session: {}'.format(key))
 
             DataSet.insert1(data[0])
             DataSet.PhysicalFile.insert(data[1])
@@ -1013,7 +1010,7 @@ class ArchivedTrackingVideo(dj.Imported):
 
         # main():
 
-        log.debug('make: {}'.format(key))
+        logger.debug('make: {}'.format(key))
 
         data = build_session(self, key)
 
@@ -1034,7 +1031,7 @@ class ArchivedTrackingVideo(dj.Imported):
         """
         self = cls()
 
-        log.info(str(key))
+        logger.info(str(key))
 
         lep = GlobusStorageLocation().local_endpoint(key['globus_alias'])
         lep, lep_sub, lep_dir = (
@@ -1042,8 +1039,8 @@ class ArchivedTrackingVideo(dj.Imported):
 
         repname, rep, rep_sub = (GlobusStorageLocation() & key).fetch()[0]
 
-        log.info('local_endpoint: {}:{} -> {}'.format(lep, lep_sub, lep_dir))
-        log.info('remote_endpoint: {}:{}'.format(rep, rep_sub))
+        logger.info('local_endpoint: {}:{} -> {}'.format(lep, lep_sub, lep_dir))
+        logger.info('remote_endpoint: {}:{}'.format(rep, rep_sub))
 
         # filter file and session attributes by key
         finfo = ((DataSet * DataSet.PhysicalFile & key)
@@ -1057,12 +1054,12 @@ class ArchivedTrackingVideo(dj.Imported):
             srcp = '{}:/{}/{}'.format(rep, rep_sub, f['file_subpath'])
             dstp = '{}:/{}/{}'.format(lep, lep_sub, f['file_subpath'])
 
-            log.info('transferring {} to {}'.format(srcp, dstp))
+            logger.info('transferring {} to {}'.format(srcp, dstp))
 
             # XXX: check if exists 1st? (manually or via API copy-checksum)
             if not gsm.cp(srcp, dstp):
                 emsg = "couldn't transfer {} to {}".format(srcp, dstp)
-                log.error(emsg)
+                logger.error(emsg)
                 raise dj.DataJointError(emsg)
 
 

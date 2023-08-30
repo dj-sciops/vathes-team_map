@@ -16,6 +16,13 @@ from pipeline.ingest import tracking as tracking_ingest
 from pipeline.ingest.utils.paths import get_ephys_paths
 
 
+try:
+    logger = dj.logger
+except Exception:
+    import logging
+    logger = logging.getLogger(__name__)
+
+
 # Helper functions for raw ephys data import
 def get_electrodes_mapping(electrodes):
     """
@@ -96,6 +103,8 @@ def datajoint_to_nwb(session_key):
         )
     except DataJointError:
         session_descr = ""
+
+    logger.info(f"Starting NWB export for: {session_identifier}...")
 
     nwbfile = NWBFile(identifier=session_identifier,
                       session_description=session_descr,
@@ -526,6 +535,7 @@ def datajoint_to_nwb(session_key):
         control_description=stim_sites,
     )
 
+    logger.info(f"NWB export completed for: {session_identifier}!")
     return nwbfile
 
 
@@ -562,11 +572,12 @@ def _to_raw_ephys_nwb(session_key,
                           & insert_key).fetch1('ephys_file')
         ks_dir = ephys_root_data_dir / ks_dir_relpath
         npx_dir = ks_dir.parent
+        logger.info(f"\t Export raw ephys - from {npx_dir}")
 
         try:
             next(npx_dir.glob("*imec*.ap.bin"))
         except StopIteration:
-            warnings.warn(f"No raw ephys file found at {npx_dir}")
+            logger.warning(f"\tNo raw ephys file found at {npx_dir}")
             continue
         # except StopIteration:
         #     raise FileNotFoundError(
@@ -617,7 +628,7 @@ def _to_raw_ephys_nwb(session_key,
         try:
             with NWBHDF5IO(raw_ephys_nwb_file.as_posix(), mode='w', manager=io.manager) as raw_io:
                 raw_io.write(raw_nwbfile)
-                print(f'\t\tWrite NWB 2.0 file: {raw_ephys_nwb_file.stem}')
+                logger.info(f'\t\tWrite NWB 2.0 file: {raw_ephys_nwb_file.stem}')
         finally:
             io.close()
     else:
@@ -654,6 +665,8 @@ def _to_raw_video_nwb(session_key,
             * tracking.TrackingDevice.proj('tracking_position')
             & session_key).fetch(
         as_dict=True, order_by='tracking_device, trial')
+
+    logger.info(f"\t Export raw video - from {len(tracking_files_info)} files")
     for tracking_file_info in tracking_files_info:
         trk_file = tracking_file_info.pop("tracking_file")
         trk_file = pathlib.Path(str(trk_file).replace("\\", "/"))
@@ -689,7 +702,7 @@ def _to_raw_video_nwb(session_key,
         try:
             with NWBHDF5IO(raw_video_nwb_file.as_posix(), mode='w', manager=io.manager) as raw_io:
                 raw_io.write(raw_nwbfile)
-                print(f'\t\tWrite NWB 2.0 file: {raw_video_nwb_file.stem}')
+                logger.info(f'\t\tWrite NWB 2.0 file: {raw_video_nwb_file.stem}')
         finally:
             io.close()
     else:
@@ -729,15 +742,15 @@ def export_recording(session_keys, output_dir='./',
 
             with NWBHDF5IO(output_fp.as_posix(), mode='w') as io:
                 io.write(nwbfile)
-            print(f'\tWrite NWB 2.0 file: {output_fp.stem}')
+            logger.info(f'\tWrite NWB 2.0 file: {output_fp.stem}')
 
         if validate:
             import nwbinspector
             with NWBHDF5IO(output_fp.as_posix(), mode='r') as io:
                 validation_status = pynwb.validate(io=io)
-            print(validation_status)
+            logger.info(validation_status)
             for inspection_message in nwbinspector.inspect_all(path=output_fp):
-                print(inspection_message)
+                logger.info(inspection_message)
 
         output_fullpaths.append(output_fp)
 
