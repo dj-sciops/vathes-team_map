@@ -17,8 +17,8 @@ def main():
 
     key = keys[6]
 
-    publication.NWBFileExport.populate(key)
-    publication.DANDIupload.populate(key)
+    publication.NWBFileExport.populate(key, reserve_jobs=True, suppress_errors=True)
+    publication.DANDIupload.populate(key, reserve_jobs=True, suppress_errors=True)
 
 
 if __name__ == "__main__":
