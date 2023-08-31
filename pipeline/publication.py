@@ -1097,7 +1097,7 @@ class NWBFileExport(dj.Computed):
     raw_ephys: bool
     raw_video: bool
     file_size: float  # (byte) size of the exported NWB file
-    raw_data_dirs: longblob
+    raw_data_dirs=null: longblob
     """
 
     @property
@@ -1175,7 +1175,7 @@ class DANDIupload(dj.Computed):
         self.insert1({**key, 'upload_start_time': start_time, 'upload_completion_time': datetime.now()})
 
         # delete the exported NWB file after DANDI upload
-        delete_post_upload = os.getenv('DELETE_POST_UPLOAD', dj.config['custom'].get('DELETE_POST_UPLOAD', False))
+        delete_post_upload = os.getenv('NWB_DELETE_POST_UPLOAD', dj.config['custom'].get('NWB_DELETE_POST_UPLOAD', False))
         if delete_post_upload:
             raw_data_dirs = [pathlib.Path(d) for d in (NWBFileExport & key).fetch1('raw_data_dirs')]
             for data_dir in raw_data_dirs + [nwb_dir] + [dandiset_dir]:
