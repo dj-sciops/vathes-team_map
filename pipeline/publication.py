@@ -1167,7 +1167,8 @@ class DANDIupload(dj.Computed):
             working_directory=dandiset_dir,
             api_key=dandi_api_key,
             sync=False,
-            existing='overwrite')
+            existing='overwrite',
+            shell=False)
 
         self.insert1({**key, 'upload_start_time': start_time, 'upload_completion_time': datetime.now()})
 
