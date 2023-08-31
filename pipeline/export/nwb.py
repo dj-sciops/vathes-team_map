@@ -601,8 +601,10 @@ def _to_raw_ephys_nwb(session_key,
         recording_channels_by_id = (
                 lab.ElectrodeConfig.Electrode * ephys.ProbeInsertion & insert_key
         ).fetch("electrode")
+
         # add sync channel
-        recording_channels_by_id = np.concatenate([recording_channels_by_id, [max(recording_channels_by_id) + 1]])
+        if extractor.get_num_channels() - len(recording_channels_by_id) == 1:
+            recording_channels_by_id = np.concatenate([recording_channels_by_id, [max(recording_channels_by_id) + 1]])
 
         insert_location = raw_nwbfile.electrode_groups[
             f'{electrode_config["probe"]} {electrode_config["electrode_config_name"]}'].location
