@@ -1132,7 +1132,7 @@ class NWBFileExport(dj.Computed):
             'raw_ephys': NWB_export_raw_ephys,
             'raw_video': NWB_export_raw_video,
             'file_size': nwb_filepath.stat().st_size,
-            'raw_data_dirs': raw_ephys_dirs + raw_video_dirs
+            'raw_data_dirs': [d.as_posix() for d in (raw_ephys_dirs + raw_video_dirs)]
         })
 
 
