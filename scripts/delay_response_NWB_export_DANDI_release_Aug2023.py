@@ -16,12 +16,8 @@ populate_settings = dict(max_calls=1, reserve_jobs=True, suppress_errors=True)
 
 
 def main():
-    keys = publication.NWBFileExport.key_source.fetch('KEY')
-
-    key = keys[6]
-
-    publication.NWBFileExport.populate(key, **populate_settings)
-    publication.DANDIupload.populate(key, **populate_settings)
+    publication.NWBFileExport.populate(**populate_settings)
+    publication.DANDIupload.populate(**populate_settings)
 
 
 if __name__ == "__main__":

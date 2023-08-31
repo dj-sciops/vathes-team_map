@@ -1097,6 +1097,7 @@ class NWBFileExport(dj.Computed):
     raw_ephys: bool
     raw_video: bool
     file_size: float  # (byte) size of the exported NWB file
+    raw_data_dirs: longblob
     """
 
     @property
@@ -1111,8 +1112,8 @@ class NWBFileExport(dj.Computed):
 
         output_dir = NWB_export_dir / _get_session_identifier(key)
 
-        download_raw_ephys(key)
-        download_raw_video(key)
+        raw_ephys_dirs = download_raw_ephys(key) if NWB_export_raw_ephys else []
+        raw_video_dirs = download_raw_video(key) if NWB_export_raw_video else []
         nwb_filepath = export_recording(
             key,
             output_dir=output_dir,
@@ -1130,7 +1131,8 @@ class NWBFileExport(dj.Computed):
             'nwb_filename': nwb_filepath.name,
             'raw_ephys': NWB_export_raw_ephys,
             'raw_video': NWB_export_raw_video,
-            'file_size': nwb_filepath.stat().st_size
+            'file_size': nwb_filepath.stat().st_size,
+            'raw_data_dirs': raw_ephys_dirs + raw_video_dirs
         })
 
 
@@ -1175,10 +1177,11 @@ class DANDIupload(dj.Computed):
         # delete the exported NWB file after DANDI upload
         delete_post_upload = os.getenv('DELETE_POST_UPLOAD', dj.config['custom'].get('DELETE_POST_UPLOAD', False))
         if delete_post_upload:
-            if nwb_dir.exists():
-                shutil.rmtree(nwb_dir)
-            if dandiset_dir.exists():
-                shutil.rmtree(dandiset_dir)
+            raw_data_dirs = [pathlib.Path(d) for d in (NWBFileExport & key).fetch1('raw_data_dirs')]
+            for data_dir in raw_data_dirs + [nwb_dir] + [dandiset_dir]:
+                if data_dir.exists():
+                    logger.info(f"\tDeleting data folder: {data_dir}")
+                    shutil.rmtree(data_dir)
 
 
 # ---------- Download raw ephys/video files ------------
