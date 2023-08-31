@@ -1172,6 +1172,30 @@ class DANDIupload(dj.Computed):
             existing='overwrite',
             shell=False)
 
+        # verify successful upload
+        from dandi import upload as dandi_upload, exceptions as dandi_exceptions
+        from dandi.dandiapi import DandiAPIClient
+
+        remote_path = next(dandiset_dir.rglob(f"{dandiset_id}/sub-{key['subject_id']}/*.nwb"))
+        with dandi_upload.ExitStack() as stack:
+            # We need to use the client as a context manager in order to ensure the
+            # session gets properly closed.  Otherwise, pytest sometimes complains
+            # under obscure conditions.
+            client = stack.enter_context(DandiAPIClient.for_dandi_instance("dandi"))
+            client.check_schema_version()
+            client.dandi_authenticate()
+
+            remote_dandiset = client.get_dandiset(dandiset_id, "draft")
+            try:
+                extant = remote_dandiset.get_asset_by_path(f"sub-{key['subject_id']}/{remote_path.name}")
+            except dandi_exceptions.NotFoundError:
+                remote_filesize = 0
+            else:
+                remote_filesize = extant.size
+
+        if remote_filesize != nwb_filepath.stat().st_size:
+            raise Exception(f"DANDI upload failed for {nwb_filepath}")
+
         self.insert1({**key, 'upload_start_time': start_time, 'upload_completion_time': datetime.now()})
 
         # delete the exported NWB file after DANDI upload
