@@ -12,7 +12,7 @@ apt-get install ffmpeg libsm6 libxext6 g++ -y
 from pipeline import publication
 
 
-populate_settings = dict(max_calls=1, reserve_jobs=True, suppress_errors=True)
+populate_settings = dict(max_calls=2, reserve_jobs=True, suppress_errors=True)
 
 
 def main():
