@@ -1143,6 +1143,7 @@ class DANDIupload(dj.Computed):
     ---
     upload_start_time: datetime
     upload_completion_time: datetime
+    asset_remote_path='': varchar(1000)
     """
 
     def make(self, key):
@@ -1196,7 +1197,10 @@ class DANDIupload(dj.Computed):
         if remote_filesize != nwb_filepath.stat().st_size:
             raise Exception(f"DANDI upload failed for {nwb_filepath}")
 
-        self.insert1({**key, 'upload_start_time': start_time, 'upload_completion_time': datetime.now()})
+        self.insert1({**key,
+                      'upload_start_time': start_time,
+                      'upload_completion_time': datetime.now(),
+                      'asset_remote_path': remote_path.relative_to(dandiset_dir).as_posix()})
 
         # delete the exported NWB file after DANDI upload
         delete_post_upload = os.getenv('NWB_DELETE_POST_UPLOAD', dj.config['custom'].get('NWB_DELETE_POST_UPLOAD', False))
