@@ -12,13 +12,14 @@ apt-get install ffmpeg libsm6 libxext6 g++ -y
 from pipeline import publication
 
 
-populate_settings = dict(max_calls=2, reserve_jobs=True, suppress_errors=True)
+populate_settings = dict(reserve_jobs=True, suppress_errors=True)
 
 
 def main():
-    for iter_count in range(3):
-        publication.NWBFileExport.populate(**populate_settings)
-        publication.DANDIupload.populate(**populate_settings)
+    for _ in range(6):
+        publication.DANDIupload.populate(max_calls=2, **populate_settings)
+        publication.NWBFileExport.populate(max_calls=2, **populate_settings)
+        publication.DANDIupload.populate(max_calls=2, **populate_settings)
 
 
 if __name__ == "__main__":
