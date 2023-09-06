@@ -17,9 +17,9 @@ populate_settings = dict(reserve_jobs=True, suppress_errors=True)
 
 def main():
     for _ in range(6):
-        publication.DANDIupload.populate(max_calls=2, **populate_settings)
-        publication.NWBFileExport.populate(max_calls=2, **populate_settings)
-        publication.DANDIupload.populate(max_calls=2, **populate_settings)
+        publication.DANDIupload.populate(max_calls=1, **populate_settings)
+        publication.NWBFileExport.populate(max_calls=1, **populate_settings)
+        publication.DANDIupload.populate(max_calls=1, **populate_settings)
 
 
 if __name__ == "__main__":
