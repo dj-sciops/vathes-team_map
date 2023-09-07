@@ -1074,6 +1074,7 @@ import shutil
 from pipeline.export.nwb import (experiment,
                                  tracking,
                                  tracking_ingest,
+                                 ephys_ingest,
                                  export_recording,
                                  DEV_POS_FOLDER_MAPPING,
                                  _get_session_identifier)
@@ -1240,13 +1241,12 @@ def _get_s3_session():
 
 def download_raw_ephys(session_key):
     _s3_session, _s3_bucket = _get_s3_session()
-
     wr, _ = get_wr_sessdatetime(session_key)
-    sess_date, sess_time = (experiment.Session & session_key).fetch1(
-        'session_date', 'session_time')
-    sess_date_str = sess_date.strftime('%m%d%y')
 
-    sess_relpath = f"{wr}_out/results/catgt_{wr}_{sess_date_str}_g0"
+    sess_path = pathlib.Path((ephys_ingest.EphysIngest.EphysFile
+                              & session_key).fetch('ephys_file', limit=1)[0])
+
+    sess_relpath = f"{wr}_out/results/{sess_path.parts[2]}"
 
     sess_remote_path = f"{EPHYS_REMOTE_DIR}/{sess_relpath}/"
     sess_local_path = EPHYS_LOCAL_DIR / sess_relpath
