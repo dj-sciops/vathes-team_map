@@ -1,24 +1,18 @@
-
-import logging
-import os
-
+import datajoint as dj
 from fnmatch import fnmatch
 from textwrap import dedent
 
-import datajoint as dj
-
-from . import lab
-from . import experiment
-from . import ephys
-
-from pipeline.globus import GlobusStorageManager
+from . import lab, experiment, ephys
 from . import get_schema_name, create_schema_settings
 
 PUBLICATION_TRANSFER_TIMEOUT = 10000
 schema = dj.schema(get_schema_name('publication'), **create_schema_settings)
 
-log = logging.getLogger(__name__)
-__all__ = [experiment, ephys]
+try:
+    logger = dj.logger
+except Exception:
+    import logging
+    logger = logging.getLogger(__name__)
 
 
 @schema
@@ -411,7 +405,8 @@ class ArchivedRawEphys(dj.Imported):
     globus_alias = 'raw-ephys'
 
     def get_gsm(self):
-        log.debug('ArchivedRawEphysTrial.get_gsm()')
+        from pipeline.globus import GlobusStorageManager
+        logger.debug('ArchivedRawEphysTrial.get_gsm()')
         if self.gsm is None:
             self.gsm = GlobusStorageManager()
             self.gsm.wait_timeout = PUBLICATION_TRANSFER_TIMEOUT
@@ -439,10 +434,10 @@ class ArchivedRawEphys(dj.Imported):
         self = cls()
         keys = self.key_source - self
 
-        log.info('attempting discovery for {} sessions'.format(len(keys)))
+        logger.info('attempting discovery for {} sessions'.format(len(keys)))
 
         for key in keys:
-            log.debug('discover calling make_discover for {}'.format(key))
+            logger.debug('discover calling make_discover for {}'.format(key))
             self.make_discover(key)
 
     def make_discover(self, key):
@@ -450,7 +445,7 @@ class ArchivedRawEphys(dj.Imported):
         Discover files on globus and attempt to register them.
         """
         def build_session(self, key):
-            log.debug('discover: build_session {}'.format(key))
+            logger.debug('discover: build_session {}'.format(key))
 
             gsm = self.get_gsm()
             globus_alias = self.globus_alias
@@ -472,7 +467,7 @@ class ArchivedRawEphys(dj.Imported):
                             as_dict=True, order_by='session')
 
             if len(msess) == 1:
-                log.info('processing single session/day case')
+                logger.info('processing single session/day case')
 
                 # session: <root>/<h2o>/catgt_<h2o>_<mdy>_g0/
                 # probe: <root>/<h2o>/catgt_<h2o>_<mdy>_g0/<h2o>_<mdy>_imecN
@@ -482,10 +477,10 @@ class ArchivedRawEphys(dj.Imported):
 
                 rep_tgt = '{}:{}'.format(rep, rpath)
 
-                log.debug('.. rpath: {}'.format(rpath))
+                logger.debug('.. rpath: {}'.format(rpath))
 
                 if not gsm.ls(rep_tgt):
-                    log.info('no globus data found for {} session {}'.format(
+                    logger.info('no globus data found for {} session {}'.format(
                         h2o, key['session']))
                     return None
 
@@ -509,7 +504,7 @@ class ArchivedRawEphys(dj.Imported):
                         'file_type': ftype['file_type']
                     }
 
-                    log.debug('.. file: {}'.format(dsfile))
+                    logger.debug('.. file: {}'.format(dsfile))
 
                     dsfiles.append({**dskey, **dsfile})
 
@@ -523,17 +518,17 @@ class ArchivedRawEphys(dj.Imported):
                 #   either transfer apdata local mess, or manuallly register
                 #     if b: need to have an explicit 'discover1' method
                 #     to allow for manual registration of on petrel data
-                log.warning('multi session/day case not yet handled')
+                logger.warning('multi session/day case not yet handled')
                 return None
 
             else:
-                log.error('key -> multisession query problem. skipping')
+                logger.error('key -> multisession query problem. skipping')
                 return None
 
             return dsrec, dsfiles
 
         def commit_session(self, key, data):
-            log.info('commit_session: {}'.format(key))
+            logger.info('commit_session: {}'.format(key))
 
             with dj.conn().transaction:
 
@@ -543,7 +538,7 @@ class ArchivedRawEphys(dj.Imported):
                 self.insert1({**key, **data[0]}, ignore_extra_fields=True,
                              allow_direct_insert=True)
 
-        log.info('.. make_discover {} {}'.format(
+        logger.info('.. make_discover {} {}'.format(
             key['subject_id'], key['session']))
 
         data = build_session(self, key)
@@ -557,7 +552,7 @@ class ArchivedRawEphys(dj.Imported):
         """
         def build_session(self, key):
 
-            log.debug('build_session: {} '.format(key))
+            logger.debug('build_session: {} '.format(key))
 
             # Get session related information needed for filenames/records
             sinfo = (lab.WaterRestriction
@@ -576,7 +571,7 @@ class ArchivedRawEphys(dj.Imported):
                                      le['endpoint_subdir'],
                                      le['endpoint_path'])
 
-            log.debug('local_endpoint: {}:{} -> {}'.format(
+            logger.debug('local_endpoint: {}:{} -> {}'.format(
                 lep, lep_sub, lep_dir))
 
             # check for multi-session/day
@@ -586,7 +581,7 @@ class ArchivedRawEphys(dj.Imported):
                             as_dict=True, order_by='session')
 
             if len(msess) == 1:
-                log.info('processing single session/day case')
+                logger.info('processing single session/day case')
 
                 # session: <root>/<h2o>/catgt_<h2o>_<mdy>_g0/
                 # probe: <root>/<h2o>/catgt_<h2o>_<mdy>_g0/<h2o>_<mdy>_imecN
@@ -595,7 +590,7 @@ class ArchivedRawEphys(dj.Imported):
                     h2o, sdate_mdy))
 
                 if not os.path.exists(lpath):
-                    log.warning('session directory {} not found'.format(
+                    logger.warning('session directory {} not found'.format(
                         lpath))
                     return None
 
@@ -608,7 +603,7 @@ class ArchivedRawEphys(dj.Imported):
                 dsfiles = []
 
                 for cwd, dirs, files in os.walk(lpath):
-                    log.debug('.. entering directory: {}'.format(cwd))
+                    logger.debug('.. entering directory: {}'.format(cwd))
 
                     for f in files:
 
@@ -620,22 +615,22 @@ class ArchivedRawEphys(dj.Imported):
                             'file_type': ftype['file_type']
                         }
 
-                        log.debug('.... file: {}'.format(dsfile))
+                        logger.debug('.... file: {}'.format(dsfile))
 
                         dsfiles.append({**dskey, **dsfile})
 
             elif len(msess) > 1:
-                log.info('multi session/day case not yet handled')
+                logger.info('multi session/day case not yet handled')
                 return None
             else:
-                log.error('key -> multisession query problem. skipping')
+                logger.error('key -> multisession query problem. skipping')
                 return None
 
             return dsrec, dsfiles
 
         def transfer_session(self, key, data):
 
-            log.debug('transfer_session: {} '.format(key))
+            logger.debug('transfer_session: {} '.format(key))
 
             gsm = self.get_gsm()
             globus_alias = 'raw-ephys'
@@ -657,17 +652,17 @@ class ArchivedRawEphys(dj.Imported):
                 srcp = '{}:{}/{}'.format(lep, lep_sub, fsp)
                 dstp = '{}:{}/{}'.format(rep, rep_sub, fsp)
 
-                log.info('transferring {} to {}'.format(srcp, dstp))
+                logger.info('transferring {} to {}'.format(srcp, dstp))
 
                 # XXX: check if exists 1st?
                 if not gsm.cp(srcp, dstp):
                     emsg = "couldn't transfer {} to {}".format(srcp, dstp)
-                    log.error(emsg)
+                    logger.error(emsg)
                     raise dj.DataJointError(emsg)
 
         def commit_session(self, key, data):
 
-            log.debug('commit_session: {}'.format(key))
+            logger.debug('commit_session: {}'.format(key))
 
             DataSet.insert1(data[0])
             DataSet.PhysicalFile.insert(data[1])
@@ -677,7 +672,7 @@ class ArchivedRawEphys(dj.Imported):
 
         # main():
 
-        log.debug('make: {}'.format(key))
+        logger.debug('make: {}'.format(key))
 
         data = build_session(self, key)
 
@@ -698,7 +693,7 @@ class ArchivedRawEphys(dj.Imported):
         """
         self = cls()
 
-        log.info(str(key))
+        logger.info(str(key))
 
         lep = GlobusStorageLocation().local_endpoint(key['globus_alias'])
         lep, lep_sub, lep_dir = (
@@ -706,8 +701,8 @@ class ArchivedRawEphys(dj.Imported):
 
         repname, rep, rep_sub = (GlobusStorageLocation() & key).fetch()[0]
 
-        log.info('local_endpoint: {}:{} -> {}'.format(lep, lep_sub, lep_dir))
-        log.info('remote_endpoint: {}:{}'.format(rep, rep_sub))
+        logger.info('local_endpoint: {}:{} -> {}'.format(lep, lep_sub, lep_dir))
+        logger.info('remote_endpoint: {}:{}'.format(rep, rep_sub))
 
         # filter file and session attributes by key
         finfo = ((DataSet * DataSet.PhysicalFile & key)
@@ -721,12 +716,12 @@ class ArchivedRawEphys(dj.Imported):
             srcp = '{}:/{}/{}'.format(rep, rep_sub, f['file_subpath'])
             dstp = '{}:/{}/{}'.format(lep, lep_sub, f['file_subpath'])
 
-            log.info('transferring {} to {}'.format(srcp, dstp))
+            logger.info('transferring {} to {}'.format(srcp, dstp))
 
             # XXX: check if exists 1st? (manually or via API copy-checksum)
             if not gsm.cp(srcp, dstp):
                 emsg = "couldn't transfer {} to {}".format(srcp, dstp)
-                log.error(emsg)
+                logger.error(emsg)
                 raise dj.DataJointError(emsg)
 
 
@@ -765,7 +760,7 @@ class ArchivedTrackingVideo(dj.Imported):
         return tracking_ingest module
         not imported globally to prevent ingest schema creation for client case
         '''
-        log.debug('ArchivedVideoFile.get_ingest()')
+        logger.debug('ArchivedVideoFile.get_ingest()')
         if cls.ingest is None:
             from .ingest import tracking as tracking_ingest
             cls.ingest = tracking_ingest
@@ -773,7 +768,8 @@ class ArchivedTrackingVideo(dj.Imported):
         return cls.ingest
 
     def get_gsm(self):
-        log.debug('ArchivedVideoFile.get_gsm()')
+        from pipeline.globus import GlobusStorageManager
+        logger.debug('ArchivedVideoFile.get_gsm()')
         if self.gsm is None:
             self.gsm = GlobusStorageManager()
             self.gsm.wait_timeout = PUBLICATION_TRANSFER_TIMEOUT
@@ -793,7 +789,7 @@ class ArchivedTrackingVideo(dj.Imported):
             working with: /SC026/08082019/video/SC026_side_735-NNNN.avi
             '''
 
-            log.info('build_session: {}'.format(key))
+            logger.info('build_session: {}'.format(key))
 
             gsm = self.get_gsm()
             globus_alias = 'raw-video'
@@ -815,16 +811,16 @@ class ArchivedTrackingVideo(dj.Imported):
                             as_dict=True, order_by='session')
 
             if len(msess) == 1:
-                log.info('processing single session/day case')
+                logger.info('processing single session/day case')
 
                 rpath = '/'.join((rep_sub, h2o, sdate_mdy))
 
                 rep_tgt = '{}:{}'.format(rep, rpath)
 
-                log.debug('.. rpath: {}'.format(rpath))
+                logger.debug('.. rpath: {}'.format(rpath))
 
                 if not gsm.ls(rep_tgt):
-                    log.info('no globus data found for {} session {}'.format(
+                    logger.info('no globus data found for {} session {}'.format(
                         h2o, key['session']))
                     return None
 
@@ -850,22 +846,22 @@ class ArchivedTrackingVideo(dj.Imported):
                         'file_type': ftype['file_type']
                     }
 
-                    log.debug('.. file: {}'.format(dsfile))
+                    logger.debug('.. file: {}'.format(dsfile))
 
                     dsfiles.append({**dskey, **dsfile})
 
             elif len(msess) > 1:
-                log.warning('multi session/day case not yet handled')
+                logger.warning('multi session/day case not yet handled')
                 return None
 
             else:
-                log.error('key -> multisession query problem. skipping')
+                logger.error('key -> multisession query problem. skipping')
                 return None
 
             return dsrec, dsfiles
 
         def commit_session(self, key, data):
-            log.info('commit_session: {}'.format(key))
+            logger.info('commit_session: {}'.format(key))
 
             with dj.conn().transaction:
 
@@ -878,11 +874,11 @@ class ArchivedTrackingVideo(dj.Imported):
         self = cls()
         keys = self.key_source - self
 
-        log.info('attempting discovery for {} sessions'.format(len(keys)))
+        logger.info('attempting discovery for {} sessions'.format(len(keys)))
 
         for key in keys:
 
-            log.info('.. inspecting {} {}'.format(
+            logger.info('.. inspecting {} {}'.format(
                 key['subject_id'], key['session']))
 
             data = build_session(self, key)
@@ -896,7 +892,7 @@ class ArchivedTrackingVideo(dj.Imported):
         """
         def build_session(self, key):
 
-            log.debug('build_session: {}'.format(key))
+            logger.debug('build_session: {}'.format(key))
 
             # Get session related information needed for filenames/records
             sinfo = (lab.WaterRestriction
@@ -915,7 +911,7 @@ class ArchivedTrackingVideo(dj.Imported):
                                      le['endpoint_subdir'],
                                      le['endpoint_path'])
 
-            log.debug('local_endpoint: {}:{} -> {}'.format(
+            logger.debug('local_endpoint: {}:{} -> {}'.format(
                 lep, lep_sub, lep_dir))
 
             # check for multi-session/day
@@ -925,14 +921,14 @@ class ArchivedTrackingVideo(dj.Imported):
                             as_dict=True, order_by='session')
 
             if len(msess) == 1:
-                log.info('processing single session/day case')
+                logger.info('processing single session/day case')
 
                 # <root>/<h2o>/MMDDYYYY/video/<h2o>_<campos>_NNN-NNN.{avi}
 
                 lpath = os.path.join((lep_dir, h2o, sdate_mdy))
 
                 if not os.path.exists(lpath):
-                    log.warning('session directory {} not found'.format(
+                    logger.warning('session directory {} not found'.format(
                         lpath))
                     return None
 
@@ -945,7 +941,7 @@ class ArchivedTrackingVideo(dj.Imported):
                 dsfiles = []
 
                 for cwd, dirs, files in os.walk(lpath):
-                    log.debug('.. entering directory: {}'.format(cwd))
+                    logger.debug('.. entering directory: {}'.format(cwd))
 
                     for f in files:
 
@@ -957,22 +953,22 @@ class ArchivedTrackingVideo(dj.Imported):
                             'file_type': ftype['file_type']
                         }
 
-                        log.debug('.... file: {}'.format(dsfile))
+                        logger.debug('.... file: {}'.format(dsfile))
 
                         dsfiles.append({**dskey, **dsfile})
 
             elif len(msess) > 1:
-                log.info('multi session/day case not yet handled')
+                logger.info('multi session/day case not yet handled')
                 return None
             else:
-                log.error('key -> multisession query problem. skipping')
+                logger.error('key -> multisession query problem. skipping')
                 return None
 
             return dsrec, dsfiles
 
         def transfer_session(self, key, data):
 
-            log.debug('transfer_session: {} '.format(key))
+            logger.debug('transfer_session: {} '.format(key))
 
             gsm = self.get_gsm()
             globus_alias = 'raw-video'
@@ -994,17 +990,17 @@ class ArchivedTrackingVideo(dj.Imported):
                 srcp = '{}:{}/{}'.format(lep, lep_sub, fsp)
                 dstp = '{}:{}/{}'.format(rep, rep_sub, fsp)
 
-                log.info('transferring {} to {}'.format(srcp, dstp))
+                logger.info('transferring {} to {}'.format(srcp, dstp))
 
                 # XXX: check if exists 1st?
                 if not gsm.cp(srcp, dstp):
                     emsg = "couldn't transfer {} to {}".format(srcp, dstp)
-                    log.error(emsg)
+                    logger.error(emsg)
                     raise dj.DataJointError(emsg)
 
         def commit_session(self, key, data):
 
-            log.debug('commit_session: {}'.format(key))
+            logger.debug('commit_session: {}'.format(key))
 
             DataSet.insert1(data[0])
             DataSet.PhysicalFile.insert(data[1])
@@ -1014,7 +1010,7 @@ class ArchivedTrackingVideo(dj.Imported):
 
         # main():
 
-        log.debug('make: {}'.format(key))
+        logger.debug('make: {}'.format(key))
 
         data = build_session(self, key)
 
@@ -1035,7 +1031,7 @@ class ArchivedTrackingVideo(dj.Imported):
         """
         self = cls()
 
-        log.info(str(key))
+        logger.info(str(key))
 
         lep = GlobusStorageLocation().local_endpoint(key['globus_alias'])
         lep, lep_sub, lep_dir = (
@@ -1043,8 +1039,8 @@ class ArchivedTrackingVideo(dj.Imported):
 
         repname, rep, rep_sub = (GlobusStorageLocation() & key).fetch()[0]
 
-        log.info('local_endpoint: {}:{} -> {}'.format(lep, lep_sub, lep_dir))
-        log.info('remote_endpoint: {}:{}'.format(rep, rep_sub))
+        logger.info('local_endpoint: {}:{} -> {}'.format(lep, lep_sub, lep_dir))
+        logger.info('remote_endpoint: {}:{}'.format(rep, rep_sub))
 
         # filter file and session attributes by key
         finfo = ((DataSet * DataSet.PhysicalFile & key)
@@ -1058,10 +1054,259 @@ class ArchivedTrackingVideo(dj.Imported):
             srcp = '{}:/{}/{}'.format(rep, rep_sub, f['file_subpath'])
             dstp = '{}:/{}/{}'.format(lep, lep_sub, f['file_subpath'])
 
-            log.info('transferring {} to {}'.format(srcp, dstp))
+            logger.info('transferring {} to {}'.format(srcp, dstp))
 
             # XXX: check if exists 1st? (manually or via API copy-checksum)
             if not gsm.cp(srcp, dstp):
                 emsg = "couldn't transfer {} to {}".format(srcp, dstp)
-                log.error(emsg)
+                logger.error(emsg)
                 raise dj.DataJointError(emsg)
+
+
+# ---- NWB export & DANDI publication ----
+
+import os
+import pathlib
+import datajoint as dj
+from datetime import datetime
+import shutil
+
+from pipeline.export.nwb import (experiment,
+                                 tracking,
+                                 tracking_ingest,
+                                 ephys_ingest,
+                                 export_recording,
+                                 DEV_POS_FOLDER_MAPPING,
+                                 _get_session_identifier)
+from pipeline.experiment import get_wr_sessdatetime
+
+
+NWB_export_dir = pathlib.Path(dj.config['custom']['NWB_export_dir'])
+NWB_export_raw_ephys = bool(dj.config['custom']['NWB_export_raw_ephys'])
+NWB_export_raw_video = bool(dj.config['custom']['NWB_export_raw_video'])
+
+
+@schema
+class NWBFileExport(dj.Computed):
+    definition = """
+    -> experiment.Session
+    ---
+    export_start_time: datetime
+    file_creation_time: datetime
+    nwb_export_dir: varchar(1000)
+    nwb_filename: varchar(1000)
+    raw_ephys: bool
+    raw_video: bool
+    file_size: float  # (byte) size of the exported NWB file
+    raw_data_dirs=null: longblob
+    """
+
+    @property
+    def key_source(self):
+        project_name = 'Brain-wide neural activity underlying memory-guided movement'
+        return (experiment.Session
+                & (experiment.ProjectSession
+                   & {'project_name': project_name}))
+
+    def make(self, key):
+        start_time = datetime.now()
+
+        output_dir = NWB_export_dir / _get_session_identifier(key)
+
+        raw_ephys_dirs = download_raw_ephys(key) if NWB_export_raw_ephys else []
+        raw_video_dirs = download_raw_video(key) if NWB_export_raw_video else []
+        nwb_filepath = export_recording(
+            key,
+            output_dir=output_dir,
+            overwrite=False,
+            validate=False,
+            raw_ephys=NWB_export_raw_ephys,
+            raw_video=NWB_export_raw_video)
+        nwb_filepath = nwb_filepath[0]
+
+        self.insert1({
+            **key,
+            'export_start_time': start_time,
+            'file_creation_time': datetime.fromtimestamp(nwb_filepath.stat().st_ctime),
+            'nwb_export_dir': output_dir.as_posix(),
+            'nwb_filename': nwb_filepath.name,
+            'raw_ephys': NWB_export_raw_ephys,
+            'raw_video': NWB_export_raw_video,
+            'file_size': nwb_filepath.stat().st_size,
+            'raw_data_dirs': [d.as_posix() for d in (raw_ephys_dirs + raw_video_dirs)]
+        })
+
+
+@schema
+class DANDIupload(dj.Computed):
+    definition = """
+    -> NWBFileExport
+    ---
+    upload_start_time: datetime
+    upload_completion_time: datetime
+    asset_remote_path='': varchar(1000)
+    """
+
+    def make(self, key):
+        from element_interface.dandi import upload_to_dandi
+
+        start_time = datetime.now()
+
+        dandiset_id = os.getenv('DANDISET_ID', dj.config['custom'].get('DANDISET_ID'))
+        dandi_api_key = os.getenv('DANDI_API_KEY', dj.config['custom'].get('DANDI_API_KEY'))
+
+        nwb_dir, nwb_filename = (NWBFileExport & key).fetch1('nwb_export_dir', 'nwb_filename')
+        nwb_dir = pathlib.Path(nwb_dir)
+        nwb_filepath = nwb_dir / nwb_filename
+        if not nwb_filepath.exists():
+            raise FileNotFoundError(f"{nwb_filepath} does not exist!")
+
+        dandiset_dir = NWB_export_dir.parent / f"{NWB_export_dir.name}_DANDI" / nwb_dir.name
+        dandiset_dir.mkdir(parents=True, exist_ok=True)
+
+        upload_to_dandi(
+            data_directory=nwb_dir,
+            dandiset_id=dandiset_id,
+            staging=False,
+            working_directory=dandiset_dir,
+            api_key=dandi_api_key,
+            sync=False,
+            existing='overwrite',
+            shell=False)
+
+        # verify successful upload
+        from dandi import upload as dandi_upload, exceptions as dandi_exceptions
+        from dandi.dandiapi import DandiAPIClient
+
+        remote_path = next(dandiset_dir.rglob(f"{dandiset_id}/sub-{key['subject_id']}/*.nwb"))
+        with dandi_upload.ExitStack() as stack:
+            # We need to use the client as a context manager in order to ensure the
+            # session gets properly closed.  Otherwise, pytest sometimes complains
+            # under obscure conditions.
+            client = stack.enter_context(DandiAPIClient.for_dandi_instance("dandi"))
+            client.check_schema_version()
+            client.dandi_authenticate()
+
+            remote_dandiset = client.get_dandiset(dandiset_id, "draft")
+            try:
+                extant = remote_dandiset.get_asset_by_path(f"sub-{key['subject_id']}/{remote_path.name}")
+            except dandi_exceptions.NotFoundError:
+                remote_filesize = 0
+            else:
+                remote_filesize = extant.size
+
+        if remote_filesize != nwb_filepath.stat().st_size:
+            raise Exception(f"DANDI upload failed for {nwb_filepath}")
+
+        self.insert1({**key,
+                      'upload_start_time': start_time,
+                      'upload_completion_time': datetime.now(),
+                      'asset_remote_path': remote_path.relative_to(dandiset_dir).as_posix()})
+
+        # delete the exported NWB file after DANDI upload
+        delete_post_upload = os.getenv('NWB_DELETE_POST_UPLOAD', dj.config['custom'].get('NWB_DELETE_POST_UPLOAD', False))
+        if delete_post_upload:
+            raw_data_dirs = [pathlib.Path(d) for d in (NWBFileExport & key).fetch1('raw_data_dirs')]
+            for data_dir in raw_data_dirs + [nwb_dir] + [dandiset_dir]:
+                if data_dir.exists():
+                    logger.info(f"\tDeleting data folder: {data_dir}")
+                    shutil.rmtree(data_dir)
+
+
+# ---------- Download raw ephys/video files ------------
+# requires `djsciops` package for fast s3 download (or you can use boto3)
+# pip install git+https://github.com/dj-sciops/djsciops-python.git
+import datajoint as dj
+import boto3
+import djsciops.axon as dj_axon
+
+
+s3_session, s3_bucket = None, None
+EPHYS_LOCAL_DIR = pathlib.Path(dj.config['custom']['ephys_data_paths'][0])
+EPHYS_REMOTE_DIR = r'map_raw_data/behavior_videos/NewSorting'
+VIDEO_LOCAL_DIR = pathlib.Path(dj.config['custom']['tracking_data_paths'][0])
+VIDEO_REMOTE_DIR = r'map_raw_data/behavior_videos/CompressedVideos'
+
+
+def _get_s3_session():
+    global s3_session, s3_bucket
+    if s3_session is None:
+        s3_session = boto3.session.Session(
+            aws_access_key_id=dj.config['stores']['map_sharing']['access_key'],
+            aws_secret_access_key=dj.config['stores']['map_sharing']['secret_key'])
+        s3_session.s3 = s3_session.resource("s3")
+        s3_bucket = dj.config['stores']['map_sharing']['bucket']
+    return s3_session, s3_bucket
+
+
+def download_raw_ephys(session_key):
+    _s3_session, _s3_bucket = _get_s3_session()
+    wr, _ = get_wr_sessdatetime(session_key)
+
+    sess_path = pathlib.Path((ephys_ingest.EphysIngest.EphysFile
+                              & session_key).fetch('ephys_file', limit=1)[0])
+
+    sess_relpath = f"{wr}_out/results/{sess_path.parts[2]}"
+
+    sess_remote_path = f"{EPHYS_REMOTE_DIR}/{sess_relpath}/"
+    sess_local_path = EPHYS_LOCAL_DIR / sess_relpath
+
+    file_list = dj_axon.list_files(
+        session=_s3_session,
+        s3_bucket=_s3_bucket,
+        s3_prefix=sess_remote_path,
+        permit_regex=r".*\.ap\.(meta|bin)",
+        include_contents_hash=False,
+        as_tree=False,
+    )
+    total_gb = sum(f['_size'] for f in file_list) * 1e-9
+    print(f"Total GB to download: {total_gb}")
+    dj_axon.download_files(
+        session=_s3_session,
+        s3_bucket=_s3_bucket,
+        source=sess_remote_path,
+        destination=f'{sess_local_path}{os.sep}',
+        permit_regex=r".*\.ap\.(meta|bin)",
+    )
+
+    return [sess_local_path]
+
+
+def download_raw_video(session_key):
+    _s3_session, _s3_bucket = _get_s3_session()
+
+    wr, _ = get_wr_sessdatetime(session_key)
+    tracking_positions = (tracking.TrackingDevice
+                          & (tracking.Tracking & session_key)).fetch('tracking_position')
+    _one_file = (tracking_ingest.TrackingIngest.TrackingFile
+                 & session_key).fetch('tracking_file', limit=1)[0]
+    _one_file = pathlib.Path(str(_one_file).replace("\\", "/"))
+    sess_dir_name = _one_file.parts[1]
+
+    sess_local_paths = []
+    for trk_pos in tracking_positions:
+        camera_str = DEV_POS_FOLDER_MAPPING[trk_pos]
+        sess_remote_path = f"{VIDEO_REMOTE_DIR}/{camera_str}/{sess_dir_name}/"
+        sess_local_path = VIDEO_LOCAL_DIR / camera_str / wr / f"{sess_dir_name}"
+
+        file_list = dj_axon.list_files(
+            session=_s3_session,
+            s3_bucket=_s3_bucket,
+            s3_prefix=sess_remote_path,
+            permit_regex=r".*\.mp4",
+            include_contents_hash=False,
+            as_tree=False,
+        )
+        total_gb = sum(f['_size'] for f in file_list) * 1e-9
+        print(f"Total GB to download: {total_gb}")
+        dj_axon.download_files(
+            session=_s3_session,
+            s3_bucket=_s3_bucket,
+            source=sess_remote_path,
+            destination=f'{sess_local_path}{os.sep}',
+            permit_regex=r".*\.mp4",
+        )
+
+        sess_local_paths.append(sess_local_path)
+
+    return sess_local_paths
