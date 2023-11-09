@@ -499,6 +499,7 @@ class UnitCoarseBrainLocation(dj.Computed):
 class UnitComment(dj.Manual):
     definition = """
     -> Unit
+    ---
     unit_comment : varchar(767)
     """
 
@@ -936,7 +937,3 @@ def check_unit_criteria(unit_key):
         return bool(unit_query)
 
     return True
-
-
-
- 
