@@ -14,7 +14,6 @@ log = logging.getLogger(__name__)
 
 lab = dj.create_virtual_module('lab', get_schema_name('lab'))
 experiment = dj.create_virtual_module('experiment', get_schema_name('experiment'))
-ephys = dj.create_virtual_module('ephys', get_schema_name('ephys'))
 
 
 def gen_probe_insert(sinfo, probe, npx_meta, probe_insertion_exists=False):
@@ -27,6 +26,7 @@ def gen_probe_insert(sinfo, probe, npx_meta, probe_insertion_exists=False):
       - probe: probe id
 
     '''
+    ephys = dj.create_virtual_module('ephys', get_schema_name('ephys'))
 
     part_no = npx_meta.probe_SN
 

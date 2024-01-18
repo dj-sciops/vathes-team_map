@@ -16,7 +16,7 @@ create_schema_settings = dict(create_schema=False, create_tables=False)
 
 def get_schema_name(name):
     try:
-        return dj.config['custom']['{}.database'.format(name)]
+        prefix = dj.config['custom']['database.prefix']
     except KeyError:
         prefix = 'map_v2_'
 

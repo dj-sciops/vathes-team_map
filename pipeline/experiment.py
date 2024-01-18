@@ -9,8 +9,6 @@ from . import get_schema_name, create_schema_settings
 
 schema = dj.schema(get_schema_name('experiment'), **create_schema_settings)
 
-ephys = dj.create_virtual_module('ephys', get_schema_name('ephys'))  # avoid circular dependency
-
 
 log = logging.getLogger(__name__)
 
@@ -109,15 +107,6 @@ class Photostim(dj.Manual):
         -> lab.BrainArea           # target brain area for photostim 
         """
 
-    class Profile(dj.Part):
-        # NOT USED CURRENT
-        definition = """
-        -> master
-        (profile_x, profile_y, profile_z) -> ccf.CCF(ccf_x, ccf_y, ccf_z)
-        ---
-        intensity_timecourse   :  longblob  # (mW/mm^2)
-        """
-
 
 @schema
 class PhotostimBrainRegion(dj.Computed):
@@ -212,6 +201,7 @@ class SessionTask(dj.Manual):
 class SessionComment(dj.Manual):
     definition = """
     -> Session
+    ---
     session_comment : varchar(767)
     """
 
@@ -432,7 +422,10 @@ class Breathing(dj.Imported):
     breathing_timestamps: longblob  # (s) relative to the start of the trial
     """
 
-    key_source = Session & ephys.ProbeInsertion & (BehaviorTrial & 'task = "multi-target-licking"')
+    @property
+    def key_source(self):
+        from pipeline import ephys
+        return Session & ephys.ProbeInsertion & (BehaviorTrial & 'task = "multi-target-licking"')
 
     def make(self, key):
         # channel 2 is for breathing data
@@ -453,7 +446,10 @@ class Piezoelectric(dj.Imported):
     piezoelectric_timestamps: longblob  # (s) relative to the start of the trial
     """
 
-    key_source = Session & ephys.ProbeInsertion & (
+    @property
+    def key_source(self):
+        from pipeline import ephys
+        return Session & ephys.ProbeInsertion & (
                 BehaviorTrial & 'task = "multi-target-licking"')
 
     def make(self, key):

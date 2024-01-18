@@ -107,6 +107,17 @@ dj_local_conf.json
 dj_local_conf_old.json
 dj*conf*.json
 
+# docker
+.env
+run.env
+
+# vscode
+.vscode/settings.json
+
+# ssh
+*.ssh
+*.pem
+
 # emacs
 **/*~
 **/#*#
