@@ -1,14 +1,8 @@
 datajoint
-scipy==1.7.1	# build issue - see statsmodels
 globus-sdk
 tifffile
-pandas
-seaborn
-matplotlib
 pillow
-tqdm
 xlrd
-numpy
 pybpod-gui-api
 pynrrd
 openpyxl
