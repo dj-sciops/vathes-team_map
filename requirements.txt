@@ -6,7 +6,7 @@ xlrd
 pybpod-gui-api
 pynrrd
 openpyxl
-statsmodels==0.12.2	# oralfacial_analysis.GLMFit error
+statsmodels#==0.12.2	# oralfacial_analysis.GLMFit error
 astropy
 statannot
 pynwb==2.2.0
