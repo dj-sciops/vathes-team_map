@@ -27,28 +27,29 @@ schema_name_mapper = {
     source_db_prefix + schema_name: target_db_prefix + schema_name
     for schema_name in (
         "lab",
-        "ccf",
+        # "ccf",
         "experiment",
         "ephys",
         "tracking",
-        "histology",
+        # "histology",
         # "psth",
         # "report",
     )
 }
 
 table_block_list = {
-    f"{target_db_prefix}lab": [],
-    f"{target_db_prefix}ccf": [],
+    f"{target_db_prefix}lab": ["VirusSource", "Virus", "Surgery", "SurgeryLocation"],
+    f"{target_db_prefix}ccf": ["CCF", "CCFAnnotation"],
     f"{target_db_prefix}experiment": [],
-    f"{target_db_prefix}ephys": ["ArchivedClustering", "UnitPassingCriteria"],
+    f"{target_db_prefix}ephys": ["ArchivedClustering", "UnitPassingCriteria",
+                                 "SingleUnitClassification", "Unit.UnitTrial", "Unit.TrialSpikes"],
     f"{target_db_prefix}tracking": [],
     f"{target_db_prefix}histology": ["ArchivedElectrodeHistology"],
     f"{target_db_prefix}psth": [],
 }
 
 
-def copy_data(restriction, batch_size=10, force_fetch=True):
+def copy_data(restriction, batch_size=50, force_fetch=False):
     for source_schema_name, target_schema_name in schema_name_mapper.items():
         source_schema = dj.create_virtual_module(
             source_schema_name, source_schema_name, connection=source_conn
@@ -89,12 +90,14 @@ def main(offset=None, limit=None, session_batch_size=2):
 
     # Session restriction
     session_restriction = session_query.fetch("KEY", offset=offset, limit=limit)
+    # session_restriction = session_restriction[:25]
+    session_restriction = session_restriction[25:50]
 
     total_count = len(session_restriction)
     for i in range(0, total_count, session_batch_size):
         print(f"\n\t\t\t--------- PROCESSING {i}/{total_count} ---------\n")
         copy_data(session_restriction[i: i + session_batch_size])
 
-
-if __name__ == "__main__":
-    main(*sys.argv[1:])
+#
+# if __name__ == "__main__":
+#     main(*sys.argv[1:])
